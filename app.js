@@ -754,6 +754,13 @@
     erreur.textContent = '';
     try {
       await db.connexion(f.email.value.trim(), f.mdp.value);
+      // La connexion ne change pas de page : on signale la réussite au navigateur
+      // pour qu'il propose d'enregistrer le mot de passe (API sur Chrome/Edge,
+      // changement d'adresse pour Safari).
+      if (window.PasswordCredential) {
+        navigator.credentials.store(new PasswordCredential({ id: f.email.value.trim(), password: f.mdp.value })).catch(() => {});
+      }
+      history.pushState(null, '', '#bilan');
       await demarrer();
     } catch (err) {
       erreur.textContent = /invalid login/i.test(err.message) ? 'Identifiant ou mot de passe incorrect.' : err.message;
