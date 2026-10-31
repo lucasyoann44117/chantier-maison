@@ -94,7 +94,13 @@ async function jetonGoogle(c: Connexion | null) {
 
 async function google(acces: string, url: string, init: RequestInit = {}) {
   const r = await fetch(url, { ...init, headers: { Authorization: `Bearer ${acces}`, ...init.headers } });
-  if (!r.ok) throw new Erreur(`Drive : ${r.status} ${await r.text()}`, r.status === 404 ? 404 : 502);
+  if (!r.ok) {
+    // Google répond par un long JSON : on n'en garde que la phrase utile.
+    const texte = await r.text();
+    let detail = texte;
+    try { detail = JSON.parse(texte).error.message; } catch { /* réponse non JSON */ }
+    throw new Erreur(`Drive (${r.status}) : ${detail.split(/\. /)[0].slice(0, 200)}`, r.status === 404 ? 404 : 502);
+  }
   return r;
 }
 

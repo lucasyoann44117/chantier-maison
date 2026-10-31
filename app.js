@@ -528,7 +528,7 @@
     if (db.demo) return '<p class="discret">Mode démo : les documents passent par le Drive, disponible avec Supabase.</p>';
     const retour = { 'drive-annule': 'Liaison annulée.', 'drive-erreur': 'La liaison avec le Drive a échoué : recommencer.' }[sous];
     if (!drive) return '<p class="discret">Vérification du Drive…</p>';
-    if (drive.erreur) return `<p class="discret">Drive injoignable : ${esc(drive.erreur)}</p>`;
+    if (drive.erreur) return `<p class="discret">Drive injoignable : ${esc(drive.erreur.slice(0, 240))} · <button class="lien" data-action="sauvegarder">Réessayer</button></p>`;
     if (!drive.connecte) {
       return `<div class="vide">${retour ? `<p class="mauvais">${retour}</p>` : ''}
         <p>Les fichiers sont rangés dans le Google Drive du foyer, qu'il faut relier une seule fois.</p>
