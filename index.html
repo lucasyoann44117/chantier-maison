@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Chantier maison</title>
+  <meta name="theme-color" content="#1f4e79">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icones/icone-192.png">
+  <link rel="apple-touch-icon" href="icones/icone-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Chantier">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-maison" viewBox="0 0 40 40">
+      <rect width="40" height="40" rx="9" fill="#f2b705"/>
+      <path d="M7 21 18 12l11 9v11H7z" fill="#1e2429"/>
+      <path d="M29 24h5v8h-5z" fill="#1e2429"/>
+      <path d="M15.5 32v-6h5v6z" fill="#f2b705"/>
+    </symbol>
+    <symbol id="i-bilan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></symbol>
+    <symbol id="i-postes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18h18"/><path d="M5 18a7 7 0 0 1 14 0"/><path d="M10 11.5V8h4v3.5"/></symbol>
+    <symbol id="i-planning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M7 14h3M14 14h3M7 17h3"/></symbol>
+    <symbol id="i-devis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7M9 17h5"/></symbol>
+    <symbol id="i-factures" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M15 9.5a3 3 0 1 0 0 4"/><path d="M9 10.5h4M9 12.5h4"/></symbol>
+  </svg>
+
+  <p id="bandeau-demo" class="bandeau" hidden>Mode démo : les données restent dans ce navigateur. Renseigner config.js pour utiliser Supabase.</p>
+
+  <section id="connexion" class="connexion" hidden>
+    <form id="form-connexion" class="carte-connexion">
+      <div class="balisage"></div>
+      <div class="marque">
+        <svg aria-hidden="true"><use href="#i-maison"/></svg>
+        <span><strong>Chantier maison</strong><small>Extension et cuisine</small></span>
+      </div>
+      <div class="champ">
+        <label for="c-email">Identifiant (e-mail)</label>
+        <input id="c-email" name="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="champ">
+        <label for="c-mdp">Mot de passe</label>
+        <input id="c-mdp" name="mdp" type="password" autocomplete="current-password" required>
+      </div>
+      <p id="erreur-connexion" class="erreur" role="alert"></p>
+      <button class="btn principal" type="submit">Se connecter</button>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <aside class="barre">
+      <div class="balisage"></div>
+      <div class="marque">
+        <svg aria-hidden="true"><use href="#i-maison"/></svg>
+        <span><strong>Chantier maison</strong><small>Extension et cuisine</small></span>
+      </div>
+      <nav>
+        <a href="#bilan" data-vue="bilan"><svg aria-hidden="true"><use href="#i-bilan"/></svg>Bilan</a>
+        <a href="#postes" data-vue="postes"><svg aria-hidden="true"><use href="#i-postes"/></svg>Postes</a>
+        <a href="#planning" data-vue="planning"><svg aria-hidden="true"><use href="#i-planning"/></svg>Planning</a>
+        <a href="#devis" data-vue="devis"><svg aria-hidden="true"><use href="#i-devis"/></svg>Devis</a>
+        <a href="#factures" data-vue="factures"><svg aria-hidden="true"><use href="#i-factures"/></svg>Factures</a>
+      </nav>
+      <div class="compte">
+        <label class="choix-auteur" for="choix-auteur" hidden>Sur ce PC :
+          <select id="choix-auteur"><option value="">Qui ?</option><option>Yoann</option><option>Sophie</option></select>
+        </label>
+        <small class="compte-email"></small>
+        <button class="lien" data-action="deconnexion">Se déconnecter</button>
+      </div>
+    </aside>
+    <main id="contenu"></main>
+  </div>
+
+  <dialog id="dlg"></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <div id="infobulle" class="infobulle" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
