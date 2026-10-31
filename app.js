@@ -284,17 +284,23 @@
     return d.length ? periode(d[0], f[f.length - 1]) : '';
   }
 
+  // Date de fin d'un poste : la dernière réalisation, une fois toutes ses tâches réalisées.
+  function finPoste(taches) {
+    if (!taches.length || taches.some(t => t.statut !== 'fait')) return '';
+    return taches.map(t => t.fin_reelle).filter(Boolean).sort().pop() || '';
+  }
+
   function vuePostes() {
     return `<header class="entete"><h1>Postes</h1><button class="btn" data-action="nouveau-poste">Ajouter un poste</button></header>
       <p class="resume">Un poste par lot de travaux : son entreprise, ses devis, ses factures et ses relances. Les dates se gèrent dans le Planning.</p>
       ${D.postes.length ? '' : '<p class="vide">Aucun poste pour l\'instant.</p>'}
       <ol class="liste">${D.postes.map(p => {
         const taches = D.taches.filter(t => t.poste_id === p.id);
-        const reel = periodeTaches(taches, 'debut_reel', 'fin_reelle');
-        const dates = reel || periodeTaches(taches, 'debut', 'fin');
+        const fin = finPoste(taches);
+        const dates = fin ? `terminé le ${date(fin)}` : periodeTaches(taches, 'debut', 'fin') && `${periodeTaches(taches, 'debut', 'fin')} (prévu)`;
         return `<li><a class="ligne" href="#poste/${p.id}">
           <span class="rang">${esc(p.ordre)}</span>
-          <span class="corps"><strong>${esc(p.nom)}</strong><small>${esc(p.entreprise)}${dates ? ` · ${dates}${reel ? '' : ' (prévu)'}` : ''}</small></span>
+          <span class="corps"><strong>${esc(p.nom)}</strong><small>${esc(p.entreprise)}${dates ? ` · ${dates}` : ''}</small></span>
           ${pastille(STATUTS_POSTE[p.statut], TON_POSTE[p.statut])}
         </a></li>`;
       }).join('')}</ol>`;
@@ -317,7 +323,7 @@
       ['Téléphone', p.telephone ? `<a href="tel:${esc(p.telephone.replace(/\s/g, ''))}">${esc(p.telephone)}</a>` : ''],
       ['E-mail', p.email ? `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>` : ''],
       ['Prévu', periodeTaches(taches, 'debut', 'fin')],
-      ['Réalisé', periodeTaches(taches, 'debut_reel', 'fin_reelle')],
+      ['Terminé le', finPoste(taches) && date(finPoste(taches))],
     ].filter(([, v]) => v);
 
     return `<p class="retour"><a href="#postes">← Postes</a></p>
@@ -950,8 +956,6 @@
         { nom: 'responsable', libelle: 'Qui', liste: [...AUTEURS, NOUS, ...entreprises()], demi: true },
         { nom: 'debut', libelle: 'Prévu : début', type: 'date', demi: true },
         { nom: 'fin', libelle: 'Prévu : fin ou échéance', type: 'date', demi: true },
-        { nom: 'debut_reel', libelle: 'Réalisé : début', type: 'date', demi: true },
-        { nom: 'fin_reelle', libelle: 'Réalisé : fin', type: 'date', demi: true },
         { nom: 'statut', libelle: 'Statut', type: 'select', options: STATUTS_TACHE, requis: true },
         {
           nom: 'apres_id', libelle: 'Après la fin de',
@@ -960,9 +964,8 @@
         { nom: 'notes', libelle: 'Notes', type: 'textarea' },
       ],
       enregistrer: x => {
-        // Même règle que le bouton de statut : les dates réelles se notent seules.
-        if (x.statut !== 'a_faire') x.debut_reel = x.debut_reel ?? aujourdhui();
-        if (x.statut === 'fait') x.fin_reelle = x.fin_reelle ?? aujourdhui();
+        // Même règle que le bouton : les dates réelles ne bougent qu'au changement de statut.
+        if (!v.id || x.statut !== v.statut) Object.assign(x, datesStatut(v, x.statut));
         return v.id ? db.modifier('taches', v.id, x) : db.ajouter('taches', x);
       },
       supprimer: v.id && (() => db.supprimer('taches', v.id)),
@@ -1027,13 +1030,15 @@
     await rafraichir();
   }
 
-  // Statut suivant : À faire → En cours (début réel noté) → Réalisé (fin
-  // réelle notée) → À faire (dates réelles effacées).
-  function etatSuivant(t) {
+  // Les dates réelles ne se saisissent pas : seul le changement de statut les
+  // écrit. En cours = début noté (caché), Réalisé = fin notée ce jour-là,
+  // À faire = rien.
+  const STATUT_SUIVANT = { a_faire: 'en_cours', en_cours: 'fait', fait: 'a_faire' };
+  function datesStatut(t, statut) {
     const auj = aujourdhui();
-    if (t.statut === 'a_faire') return { statut: 'en_cours', debut_reel: t.debut_reel || auj };
-    if (t.statut === 'en_cours') return { statut: 'fait', debut_reel: t.debut_reel || auj, fin_reelle: t.fin_reelle || auj };
-    return { statut: 'a_faire', debut_reel: null, fin_reelle: null };
+    if (statut === 'en_cours') return { statut, debut_reel: t.debut_reel || auj, fin_reelle: null };
+    if (statut === 'fait') return { statut, debut_reel: t.debut_reel || auj, fin_reelle: auj };
+    return { statut, debut_reel: null, fin_reelle: null };
   }
 
   // ---------- Actions ----------
@@ -1066,7 +1071,7 @@
       const t = trouve('taches', b.dataset.id);
       b.disabled = true;
       try {
-        const suite = etatSuivant(t);
+        const suite = datesStatut(t, STATUT_SUIVANT[t.statut]);
         await db.modifier('taches', t.id, suite);
         await rafraichir();
         message(`${t.titre} : ${STATUTS_TACHE[suite.statut]}`);
