@@ -747,7 +747,16 @@
     await rafraichir();
   }
 
+  $('#voir-mdp').onclick = () => {
+    const champ = $('#c-mdp');
+    const visible = champ.type === 'password';
+    champ.type = visible ? 'text' : 'password';
+    $('#voir-mdp').textContent = visible ? 'Masquer' : 'Afficher';
+    $('#voir-mdp').setAttribute('aria-pressed', String(visible));
+  };
+
   $('#form-connexion').onsubmit = async e => {
+    $('#c-mdp').type = 'password';
     e.preventDefault();
     const f = e.target;
     const erreur = $('#erreur-connexion');

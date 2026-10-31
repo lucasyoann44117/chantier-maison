@@ -578,6 +578,9 @@ textarea { resize: vertical; }
 .carte-connexion .balisage { margin: 0 -24px 8px; }
 .carte-connexion .marque { padding: 0; color: var(--encre); }
 .carte-connexion .marque small { color: var(--doux); }
+.mdp { display: flex; gap: 6px; }
+.mdp input { flex: 1; min-width: 0; }
+.mdp .btn { flex: none; min-height: 44px; }
 .erreur { margin: 0; min-height: 1.5em; color: var(--mal); font-size: 14px; }
 
 .toast {

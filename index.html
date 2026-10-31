@@ -45,7 +45,10 @@
       </div>
       <div class="champ">
         <label for="c-mdp">Mot de passe</label>
-        <input id="c-mdp" name="mdp" type="password" autocomplete="current-password" required>
+        <div class="mdp">
+          <input id="c-mdp" name="mdp" type="password" autocomplete="current-password" required>
+          <button type="button" class="btn petit" id="voir-mdp" aria-pressed="false">Afficher</button>
+        </div>
       </div>
       <p id="erreur-connexion" class="erreur" role="alert"></p>
       <button class="btn principal" type="submit">Se connecter</button>
