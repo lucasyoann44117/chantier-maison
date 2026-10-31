@@ -23,9 +23,11 @@
     ajouter: (table, lignes) => base.ajouter(table, [].concat(lignes).map(signer)),
     modifier: (table, id, champs) => base.modifier(table, id, signer(champs)),
   };
-  const TABLES = ['postes', 'devis', 'devis_historique', 'factures', 'taches', 'relances', 'reglages'];
+  const TABLES = ['postes', 'devis', 'devis_historique', 'factures', 'taches', 'relances', 'reglages', 'documents'];
   const D = Object.fromEntries(TABLES.map(t => [t, []]));
-  const filtres = { planning: 'tout', vue: 'liste', factures: 'a_payer' };
+  const filtres = { planning: 'tout', vue: 'liste', factures: 'a_payer', documents: 'tous' };
+  // État du Drive, donné par la sauvegarde lancée à l'ouverture.
+  let drive = null;
 
   const NOUS = 'Nous';
   const STATUTS_POSTE = { a_contacter: 'À contacter', relance: 'Relancé', planifie: 'Planifié', en_cours: 'En cours', termine: 'Terminé' };
@@ -36,6 +38,7 @@
   const SOURCES = { banque: 'Banque', apport: 'Apport personnel' };
   const STATUTS_TACHE = { a_faire: 'À faire', en_cours: 'En cours', fait: 'Fait' };
   const MOYENS = { telephone: 'Téléphone', sms: 'SMS', email: 'E-mail', sur_place: 'Sur place' };
+  const TYPES_DOC = { devis: 'Devis', facture: 'Facture', plan: 'Plan', photo: 'Photo', autre: 'Autre' };
 
   // ---------- Outils ----------
 
@@ -305,6 +308,7 @@
     const factures = D.factures.filter(x => x.poste_id === id);
     const relances = D.relances.filter(x => x.poste_id === id);
     const taches = D.taches.filter(x => x.poste_id === id);
+    const documents = D.documents.filter(x => x.poste_id === id);
     const section = (titre, action, contenu, vide) => `<section class="bloc">
       <header class="entete"><h2>${titre}</h2><button class="btn petit" data-action="${action}" data-poste="${id}">Ajouter</button></header>
       ${contenu || `<p class="discret">${vide}</p>`}</section>`;
@@ -333,6 +337,7 @@
       ${section('Relances', 'nouvelle-relance', relances.length && `<ul class="liste">${relances.map(r => `<li><button class="ligne" data-action="relance" data-id="${r.id}">
           <span class="corps"><strong>${date(r.date_relance)}${r.moyen ? ` · ${esc(MOYENS[r.moyen] || r.moyen)}` : ''}</strong><small>${esc(r.reponse) || 'Pas de réponse notée'}${r.auteur ? ` · par ${esc(r.auteur)}` : ''}</small></span>
         </button></li>`).join('')}</ul>`, 'Aucune relance.')}
+      ${section('Documents', 'nouveau-document', documents.length && listeDocuments(documents), 'Aucun document.')}
       ${section('Au planning', 'nouvelle-tache', taches.length && tableauPlanning(trierTaches(taches), false), 'Aucune tâche liée.')}`;
   }
 
@@ -506,7 +511,180 @@
         </a></li>`).join('')}</ul></section>`;
   }
 
-  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, devis: vueDevis, factures: vueFactures, reste: vueReste };
+  // ---------- Documents (fichiers dans le Google Drive du foyer) ----------
+
+  function ligneDocument(x) {
+    const p = trouve('postes', x.poste_id);
+    const d = trouve('devis', x.devis_id);
+    const f = trouve('factures', x.facture_id);
+    const lie = [p && p.nom, d && `devis ${d.numero || ''}`, f && `facture ${f.numero || ''}`].filter(Boolean).join(' · ');
+    return `<li class="doc"><button class="ligne" data-action="ouvrir-document" data-id="${x.id}">
+        <span class="corps"><strong>${esc(x.nom)}</strong><small>${TYPES_DOC[x.type]}${lie ? ` · ${esc(lie)}` : ''} · ${date(x.created_at.slice(0, 10))}${x.auteur ? ` · ${esc(x.auteur)}` : ''}</small></span>
+      </button><button class="btn petit" data-action="document" data-id="${x.id}">Modifier</button></li>`;
+  }
+  const listeDocuments = liste => `<ul class="liste">${liste.map(ligneDocument).join('')}</ul>`;
+
+  function etatDrive(sous) {
+    if (db.demo) return '<p class="discret">Mode démo : les documents passent par le Drive, disponible avec Supabase.</p>';
+    const retour = { 'drive-annule': 'Liaison annulée.', 'drive-erreur': 'La liaison avec le Drive a échoué : recommencer.' }[sous];
+    if (!drive) return '<p class="discret">Vérification du Drive…</p>';
+    if (drive.erreur) return `<p class="discret">Drive injoignable : ${esc(drive.erreur)}</p>`;
+    if (!drive.connecte) {
+      return `<div class="vide">${retour ? `<p class="mauvais">${retour}</p>` : ''}
+        <p>Les fichiers sont rangés dans le Google Drive du foyer, qu'il faut relier une seule fois.</p>
+        <button class="btn principal" data-action="relier-drive">Relier le Drive</button></div>`;
+    }
+    const derniere = drive.derniere_sauvegarde ? date(iso(new Date(drive.derniere_sauvegarde))) : 'pas encore faite';
+    return `<p class="resume">Rangés dans le Drive, dossier « Chantier maison ». Sauvegarde des données : ${derniere} · <button class="lien" data-action="sauvegarder">Sauvegarder maintenant</button></p>`;
+  }
+
+  function vueDocuments(sous) {
+    const liste = D.documents.filter(x => filtres.documents === 'tous' || x.type === filtres.documents);
+    return `<header class="entete"><h1>Documents</h1><button class="btn" data-action="nouveau-document">Ajouter un document</button></header>
+      ${etatDrive(sous)}
+      ${puces('documents', { tous: 'Tous', devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', autre: 'Autres' })}
+      ${liste.length ? listeDocuments(liste) : '<p class="vide">Aucun document ici.</p>'}`;
+  }
+
+  // Ouverture : sauvegarde hebdomadaire si besoin, et état du Drive.
+  async function verifierDrive(force) {
+    if (db.demo) return;
+    try {
+      drive = await db.drive('sauvegarder', force ? { force: '1' } : {}, '');
+      if (force) message(drive.connecte ? 'Sauvegarde déposée dans le Drive' : 'Relier d\'abord le Drive', !drive.connecte);
+    } catch (e) {
+      drive = { erreur: e.message };
+      if (force) message(e.message, true);
+    }
+    if (location.hash.startsWith('#documents')) afficher();
+  }
+
+  // Les photos du téléphone (3 à 5 Mo) sont réduites à environ 2000 px.
+  async function reduireImage(f) {
+    if (f.size < 600e3 || !/^image\/(jpeg|png|webp|heic|heif)$/.test(f.type)) return f;
+    try {
+      const img = await createImageBitmap(f);
+      const k = Math.min(1, 2000 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.82));
+      return blob && blob.size < f.size ? new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : f;
+    } catch (e) {
+      return f;
+    }
+  }
+
+  const extension = nom => (/\.\w{2,5}$/.exec(nom) || [''])[0];
+
+  function formDocument(v) {
+    const nouveau = !v.id;
+    const optionsDevis = Object.fromEntries(D.devis.map(d => [d.id, `${d.numero || 'Sans numéro'} – ${d.entreprise || ''}`]));
+    const optionsFactures = Object.fromEntries(D.factures.map(f => [f.id, `${f.numero || 'Sans numéro'} – ${f.entreprise || ''}`]));
+    const champs = [
+      ...(nouveau ? [{ nom: 'fichier', libelle: 'Fichier (PDF ou photo)', type: 'fichier', requis: true }] : []),
+      { nom: 'nom', libelle: 'Nom', requis: !nouveau },
+      { nom: 'type', libelle: 'Type', type: 'select', options: TYPES_DOC, requis: true, demi: true },
+      { nom: 'poste_id', libelle: 'Poste', type: 'select', options: optionsPostes(), demi: true },
+      { nom: 'devis_id', libelle: 'Devis lié', type: 'select', options: optionsDevis, demi: true },
+      { nom: 'facture_id', libelle: 'Facture liée', type: 'select', options: optionsFactures, demi: true },
+      { nom: 'notes', libelle: 'Notes', type: 'textarea' },
+    ];
+    const form = ouvrirFormulaire({
+      titre: nouveau ? 'Ajouter un document' : 'Modifier le document',
+      valeurs: v,
+      champs,
+      enregistrer: async x => {
+        const lien = (x.devis_id && trouve('devis', x.devis_id)) || (x.facture_id && trouve('factures', x.facture_id));
+        if (lien) x.poste_id = x.poste_id ?? lien.poste_id;
+        const { fichier, ...fiche } = x;
+        if (!nouveau) return db.modifier('documents', v.id, fiche);
+        const f = await reduireImage(fichier);
+        if (f.size > 25e6) throw new Error('Fichier trop lourd (25 Mo au plus).');
+        fiche.nom = fiche.nom || fichier.name.replace(/\.\w{2,5}$/, '');
+        const mime = f.type || 'application/octet-stream';
+        const { drive_id } = await db.drive('envoyer', { nom: fiche.nom + extension(f.name), type: fiche.type, mime }, f);
+        await db.ajouter('documents', { ...fiche, drive_id, mime, taille: f.size });
+      },
+      supprimer: !nouveau && (async () => {
+        await db.drive('supprimer', { id: v.id }, '');
+        await db.supprimer('documents', v.id);
+      }),
+    });
+    if (nouveau) {
+      // Le nom et le type se devinent du fichier choisi.
+      form.elements.fichier.onchange = () => {
+        const f = form.elements.fichier.files[0];
+        if (!f) return;
+        if (!form.elements.nom.value) form.elements.nom.value = f.name.replace(/\.\w{2,5}$/, '');
+        if (f.type.startsWith('image/') && form.elements.type.value === 'autre') form.elements.type.value = 'photo';
+      };
+    }
+  }
+
+  // Lecteur PDF chargé à la première ouverture d'un PDF.
+  const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  let pdfjs = null;
+  function chargerPdfjs() {
+    pdfjs = pdfjs || new Promise((ok, ko) => {
+      const s = document.createElement('script');
+      s.src = PDFJS + 'pdf.min.js';
+      s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js'; ok(window.pdfjsLib); };
+      s.onerror = () => { pdfjs = null; ko(new Error('Lecteur PDF indisponible : utiliser Télécharger.')); };
+      document.head.append(s);
+    });
+    return pdfjs;
+  }
+
+  async function afficherPdf(blob, corps, dlg) {
+    const lib = await chargerPdfjs();
+    const pdf = await lib.getDocument({ data: await blob.arrayBuffer() }).promise;
+    corps.innerHTML = '';
+    const largeur = Math.min(corps.clientWidth, 1400) * Math.min(window.devicePixelRatio || 1, 2);
+    for (let i = 1; i <= pdf.numPages && dlg.open; i++) {
+      const page = await pdf.getPage(i);
+      const vp = page.getViewport({ scale: largeur / page.getViewport({ scale: 1 }).width });
+      const c = document.createElement('canvas');
+      c.width = Math.round(vp.width);
+      c.height = Math.round(vp.height);
+      corps.append(c);
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    }
+  }
+
+  async function ouvrirDocument(id) {
+    const x = trouve('documents', id);
+    const dlg = $('#dlg');
+    if (dlg.open) dlg.close();
+    dlg.innerHTML = `<div class="visionneuse">
+      <header><h2>${esc(x.nom)}</h2><span class="espace"></span>
+        <a class="btn petit" data-role="telecharger" hidden>Télécharger</a>
+        <button type="button" class="btn petit" data-role="fermer">Fermer</button></header>
+      <div class="vision-corps"><p class="discret">Chargement…</p></div>
+    </div>`;
+    const corps = dlg.querySelector('.vision-corps');
+    let url = null;
+    dlg.classList.add('plein');
+    dlg.addEventListener('close', () => { dlg.classList.remove('plein'); if (url) URL.revokeObjectURL(url); }, { once: true });
+    dlg.querySelector('[data-role=fermer]').onclick = () => dlg.close();
+    dlg.showModal();
+    try {
+      const blob = await db.drive('ouvrir', { id });
+      url = URL.createObjectURL(blob);
+      const lien = dlg.querySelector('[data-role=telecharger]');
+      lien.href = url;
+      lien.download = x.nom + (extension(x.nom) ? '' : x.mime === 'application/pdf' ? '.pdf' : x.mime === 'image/jpeg' ? '.jpg' : '');
+      lien.hidden = false;
+      if ((x.mime || '').startsWith('image/')) corps.innerHTML = `<img src="${url}" alt="${esc(x.nom)}">`;
+      else if (x.mime === 'application/pdf') await afficherPdf(blob, corps, dlg);
+      else corps.innerHTML = '<p class="discret">Pas d\'aperçu pour ce type de fichier : utiliser Télécharger.</p>';
+    } catch (e) {
+      corps.innerHTML = `<p class="mauvais">${esc(e.message)}</p>`;
+    }
+  }
+
+  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, documents: vueDocuments, devis: vueDevis, factures: vueFactures, reste: vueReste };
   // Devis, factures et reste s'ouvrent depuis les cartes du Bilan.
   const SOUS_BILAN = ['devis', 'factures', 'reste'];
 
@@ -528,6 +706,9 @@
         `<option value="${esc(k)}"${String(v ?? '') === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
     } else if (c.type === 'textarea') {
       saisie = `<textarea id="${id}" name="${c.nom}" rows="3">${esc(v)}</textarea>`;
+    } else if (c.type === 'fichier') {
+      // Sur téléphone, le sélecteur propose aussi l'appareil photo.
+      saisie = `<input id="${id}" name="${c.nom}" type="file" accept="application/pdf,image/*"${c.requis ? ' required' : ''}>`;
     } else if (c.type === 'euros') {
       saisie = `<input id="${id}" name="${c.nom}" inputmode="decimal" autocomplete="off" value="${v == null ? '' : String(v).replace('.', ',')}">`;
     } else {
@@ -540,6 +721,7 @@
   function lire(form, champs) {
     const o = {};
     for (const c of champs) {
+      if (c.type === 'fichier') { o[c.nom] = form.elements[c.nom].files[0] || null; continue; }
       const brut = form.elements[c.nom].value.trim();
       if (brut === '') { o[c.nom] = null; continue; }
       if (c.type === 'euros' || c.type === 'number') {
@@ -568,7 +750,10 @@
       </footer>
     </form>`;
     const form = dlg.querySelector('form');
+    // Boutons bloqués pendant l'enregistrement (un envoi au Drive prend du temps).
     const agir = async (action, texte) => {
+      const boutons = form.querySelectorAll('footer .btn');
+      boutons.forEach(b => { b.disabled = true; });
       try {
         await action();
         dlg.close();
@@ -576,6 +761,7 @@
         message(texte);
       } catch (e) {
         message(e.message, true);
+        boutons.forEach(b => { b.disabled = false; });
       }
     };
     form.onsubmit = ev => { ev.preventDefault(); agir(() => enregistrer(lire(form, champs)), 'Enregistré'); };
@@ -588,6 +774,7 @@
         boutonSuppr.textContent = 'Confirmer la suppression';
       };
     }
+    if (dlg.open) dlg.close();
     dlg.showModal();
     return form;
   }
@@ -616,13 +803,20 @@
     });
   }
 
+  // Dans la fiche d'un devis ou d'une facture : ses documents et « Joindre ».
+  function docsLies(type, v) {
+    const liste = D.documents.filter(x => x[`${type}_id`] === v.id);
+    return `<div class="historique"><p>Documents : ${liste.map(x => `<button type="button" class="lien" data-action="ouvrir-document" data-id="${x.id}">${esc(x.nom)}</button>`).join(', ') || 'aucun'}
+      · <button type="button" class="lien" data-action="nouveau-document" data-${type}="${v.id}" data-poste="${v.poste_id || ''}">Joindre</button></p></div>`;
+  }
+
   function formDevis(v) {
     const historique = v.id ? D.devis_historique.filter(h => h.devis_id === v.id) : [];
     const libChamp = { montant_estimatif: 'estimatif', montant_valide: 'validé' };
     const complement = v.id ? `<div class="historique">
         <p>Montant initial : <strong>${euros(v.montant_initial)}</strong></p>
         ${historique.length ? `<ul>${historique.map(h => `<li>${date(h.modifie_le.slice(0, 10))} · ${libChamp[h.champ]} : ${euros(h.ancien)} → ${euros(h.nouveau)}${h.auteur ? ` · ${esc(h.auteur)}` : ''}</li>`).join('')}</ul>` : ''}
-      </div>` : '';
+      </div>${docsLies('devis', v)}` : '';
     ouvrirFormulaire({
       titre: v.id ? `Devis ${v.numero || ''}` : 'Nouveau devis',
       valeurs: v,
@@ -657,6 +851,7 @@
     const form = ouvrirFormulaire({
       titre: v.id ? `Facture ${v.numero || ''}` : 'Nouvelle facture',
       valeurs: v,
+      complement: v.id ? docsLies('facture', v) : '',
       champs: [
         { nom: 'numero', libelle: 'Numéro', demi: true },
         { nom: 'date_facture', libelle: 'Date', type: 'date', demi: true },
@@ -828,6 +1023,23 @@
       }
     },
     budget: () => formBudget(),
+    'nouveau-document': b => formDocument({
+      type: b.dataset.devis ? 'devis' : b.dataset.facture ? 'facture' : TYPES_DOC[filtres.documents] ? filtres.documents : 'autre',
+      poste_id: b.dataset.poste || null, devis_id: b.dataset.devis || null, facture_id: b.dataset.facture || null,
+    }),
+    document: b => formDocument(trouve('documents', b.dataset.id)),
+    'ouvrir-document': b => ouvrirDocument(b.dataset.id),
+    'relier-drive': async b => {
+      b.disabled = true;
+      try {
+        const { url } = await db.drive('connecter', { retour: location.origin + location.pathname });
+        location.href = url;
+      } catch (e) {
+        message(e.message, true);
+        b.disabled = false;
+      }
+    },
+    sauvegarder: () => verifierDrive(true),
     'ouvrir-poste': b => { location.hash = `#poste/${b.dataset.id}`; },
     filtre: b => {
       if (b.dataset.groupe === 'factures') { location.hash = `#factures/${b.dataset.valeur}`; return; }
@@ -884,6 +1096,7 @@
     $('#connexion').hidden = true;
     $('#app').hidden = false;
     await rafraichir();
+    verifierDrive();
   }
 
   $('#voir-mdp').onclick = () => {

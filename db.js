@@ -9,6 +9,7 @@ const TRI = {
   taches: ['ordre', true],
   relances: ['date_relance', false],
   reglages: ['id', true],
+  documents: ['created_at', false],
 };
 
 window.creerBase = function (cfg) {
@@ -33,6 +34,18 @@ function baseSupabase(cfg) {
     async ajouter(table, lignes) { return ok(await sb.from(table).insert(lignes).select()); },
     async modifier(table, id, champs) { ok(await sb.from(table).update(champs).eq('id', id)); },
     async supprimer(table, id) { ok(await sb.from(table).delete().eq('id', id)); },
+    // Pont vers le Google Drive (supabase/functions/drive). Sans corps : GET.
+    async drive(action, params = {}, corps) {
+      const { session } = ok(await sb.auth.getSession());
+      const r = await fetch(`${cfg.supabaseUrl}/functions/v1/drive?${new URLSearchParams({ action, ...params })}`, {
+        method: corps === undefined ? 'GET' : 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, apikey: cfg.supabaseAnonKey },
+        body: corps,
+      });
+      const json = (r.headers.get('Content-Type') || '').includes('json');
+      if (!r.ok) throw new Error((json ? (await r.json()).erreur : await r.text()) || `Drive : erreur ${r.status}`);
+      return json ? r.json() : r.blob();
+    },
   };
 }
 
@@ -93,14 +106,16 @@ function baseDemo() {
       d[table] = d[table].filter(x => x.id !== id);
       if (table === 'devis') {
         d.devis_historique = d.devis_historique.filter(x => x.devis_id !== id);
-        d.factures.forEach(x => { if (x.devis_id === id) x.devis_id = null; });
+        for (const t of ['factures', 'documents']) d[t].forEach(x => { if (x.devis_id === id) x.devis_id = null; });
       }
+      if (table === 'factures') d.documents.forEach(x => { if (x.facture_id === id) x.facture_id = null; });
       if (table === 'taches') d.taches.forEach(x => { if (x.apres_id === id) x.apres_id = null; });
       if (table === 'postes') {
         d.relances = d.relances.filter(x => x.poste_id !== id);
-        for (const t of ['devis', 'factures', 'taches']) d[t].forEach(x => { if (x.poste_id === id) x.poste_id = null; });
+        for (const t of ['devis', 'factures', 'taches', 'documents']) d[t].forEach(x => { if (x.poste_id === id) x.poste_id = null; });
       }
       sauver();
     },
+    async drive() { throw new Error('Mode démo : les documents passent par le Drive, disponible une fois l\'application reliée à Supabase.'); },
   };
 }

@@ -177,3 +177,38 @@ end $$;
 
 revoke execute on function est_du_foyer() from public, anon;
 grant execute on function est_du_foyer() to authenticated;
+
+-- Documents (devis, factures, plans, photos) : les fichiers sont dans le
+-- Google Drive du foyer, la base ne garde que leur fiche.
+create table documents (
+  id uuid primary key default gen_random_uuid(),
+  drive_id text not null,
+  nom text not null,
+  type text not null default 'autre' check (type in ('devis', 'facture', 'plan', 'photo', 'autre')),
+  mime text,
+  taille bigint,
+  poste_id uuid references postes (id) on delete set null,
+  devis_id uuid references devis (id) on delete set null,
+  facture_id uuid references factures (id) on delete set null,
+  notes text,
+  auteur text,
+  created_at timestamptz not null default now()
+);
+alter table documents enable row level security;
+create policy foyer_tout on documents for all to authenticated using (est_du_foyer()) with check (est_du_foyer());
+grant select, insert, update, delete on documents to authenticated;
+
+-- Liaison avec le Drive, lue seulement par la fonction « drive » (clé serveur) :
+-- aucune règle, aucun droit, donc invisible depuis l'application.
+create table drive_connexion (
+  id int primary key default 1 check (id = 1),
+  refresh_token text,
+  dossiers jsonb,
+  etat text,
+  etat_le timestamptz,
+  retour text,
+  derniere_sauvegarde timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table drive_connexion enable row level security;
+revoke all on drive_connexion from anon, authenticated;
