@@ -464,10 +464,33 @@ a.chiffre:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgb(0 0 0 
 .p-rang .rang { width: 28px; height: 28px; font-size: 1rem; }
 .planning tr.artisan .rang { background: var(--plan); color: var(--sur-plan); }
 .p-rang { position: relative; }
-.fleches { display: inline-flex; flex-direction: column; vertical-align: middle; margin-left: 4px; }
-.fleche { font-size: 10px; line-height: 1; padding: 2px 4px; border: 0; background: none; color: var(--doux); cursor: pointer; }
-.fleche:hover:not(:disabled) { color: var(--encre); }
-.fleche:disabled { opacity: .25; cursor: default; }
+/* Poignée de glisser-déposer des tâches sans date. */
+.poignee { display: inline-block; vertical-align: middle; margin-left: 2px; padding: 4px 6px; font-size: 18px; line-height: 1; color: var(--doux); cursor: grab; touch-action: none; user-select: none; }
+.poignee:hover { color: var(--encre); }
+.planning tr.glisse { opacity: .55; background: var(--surface-douce); }
+.planning tr.glisse .poignee { cursor: grabbing; }
+/* Statut : un clic passe à l'étape suivante. */
+.etat { font: inherit; font-size: 13px; font-weight: 600; min-width: 84px; min-height: 32px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--trait); background: var(--surface); color: var(--doux); cursor: pointer; white-space: nowrap; }
+.etat:hover { border-color: var(--doux); color: var(--encre); }
+.etat.en_cours { background: var(--lien-doux); border-color: var(--lien); color: var(--lien); }
+.etat.fait { background: var(--ok-doux); border-color: var(--ok); color: var(--ok); }
+.etat.fait::before { content: "✓ "; }
+.bon { color: var(--ok); }
+
+/* Prévu / réalisé : deux barres par tâche sur une même échelle de jours. */
+.ecarts { list-style: none; margin: 0; padding: 12px 16px; display: flex; flex-direction: column; gap: 14px; background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); }
+.ecarts li { display: grid; grid-template-columns: minmax(120px, 220px) 1fr auto; gap: 12px; align-items: center; }
+.e-nom { display: flex; flex-direction: column; min-width: 0; }
+.e-nom strong { font-weight: 600; }
+.e-nom small { font-size: 13px; color: var(--doux); }
+.e-barres { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.e-barre { display: block; height: 10px; min-width: 4px; border-radius: 0 4px 4px 0; }
+.e-barre.prevu, .l-e-prevu { background: color-mix(in srgb, var(--c-devis) 35%, var(--surface)); }
+.e-barre.reel, .l-e-reel { background: var(--c-devis); }
+.e-barre.en-cours, .l-e-cours { background: repeating-linear-gradient(-45deg, var(--c-devis) 0 5px, color-mix(in srgb, var(--c-devis) 45%, var(--surface)) 5px 9px); }
+.e-sans { font-size: 12px; color: var(--doux); }
+.e-chiffre { display: flex; flex-direction: column; align-items: flex-end; font-weight: 600; font-variant-numeric: tabular-nums; }
+.e-chiffre small { font-size: 12px; }
 .qui { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 13px; font-weight: 600; }
 .qui.artisan { background: var(--lien-doux); color: var(--lien); }
 .qui.nous { background: var(--att-doux); color: var(--att); }
@@ -779,7 +802,10 @@ dialog.plein[open] { display: flex; flex-direction: column; }
   .planning td[data-label="Réalisé"] { grid-area: reel; }
   .planning td[data-label="Prévu"]::before, .planning td[data-label="Réalisé"]::before { content: attr(data-label) " : "; color: var(--doux); font-size: 12px; }
   .planning .p-qui::before { content: none; }
-  .fleches { flex-direction: row; margin: 4px 0 0; }
+  .poignee { display: block; margin: 6px 0 0; text-align: center; }
+  .ecarts { padding: 10px 12px; }
+  .ecarts li { grid-template-columns: 1fr auto; gap: 6px 10px; }
+  .e-barres { grid-column: 1 / -1; grid-row: 2; }
   .chiffre strong { font-size: 1.45rem; }
   .champs { grid-template-columns: 1fr; }
 

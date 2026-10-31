@@ -36,7 +36,7 @@
   const TON_DEVIS = { estimatif: 'neutre', valide: 'ok', refuse: 'mal' };
   const STATUTS_FACTURE = { a_payer: 'À payer', paye: 'Payée' };
   const SOURCES = { banque: 'Banque', apport: 'Apport personnel' };
-  const STATUTS_TACHE = { a_faire: 'À faire', en_cours: 'En cours', fait: 'Fait' };
+  const STATUTS_TACHE = { a_faire: 'À faire', en_cours: 'En cours', fait: 'Réalisé' };
   const MOYENS = { telephone: 'Téléphone', sms: 'SMS', email: 'E-mail', sur_place: 'Sur place' };
   const TYPES_DOC = { devis: 'Devis', facture: 'Facture', plan: 'Plan', photo: 'Photo', autre: 'Autre' };
 
@@ -362,11 +362,19 @@
     </button></li>`;
   }
 
-  // Ordre d'enchaînement, puis date prévue.
-  const trierTaches = liste => liste.slice().sort((a, b) => (a.ordre - b.ordre) || (a.debut || a.fin || '9').localeCompare(b.debut || b.fin || '9'));
   const estArtisan = t => ![NOUS, ...AUTEURS].includes(t.responsable || NOUS);
   const debutDe = t => t.debut_reel || t.debut || t.fin;
   const finDe = t => t.fin_reelle || t.fin || t.debut_reel || t.debut;
+  // Par date de début (réelle, sinon prévue) : pour changer l'ordre, on change
+  // les dates. Les tâches sans date suivent, dans l'ordre choisi à la main.
+  const trierTaches = liste => liste.slice().sort((a, b) => {
+    const da = debutDe(a), db = debutDe(b);
+    if (da && db) return da.localeCompare(db) || (a.ordre - b.ordre);
+    if (da || db) return da ? -1 : 1;
+    return a.ordre - b.ordre;
+  });
+  // Durée en jours calendaires, bornes comprises.
+  const jours = (debut, fin) => Math.round((jour(fin) - jour(debut)) / 86400000) + 1;
 
   // Une tâche qui démarre avant la fin de celle qu'elle doit suivre.
   function conflit(t) {
@@ -376,7 +384,9 @@
     return finAvant && debut && debut < finAvant ? avant : null;
   }
 
-  // Le planning global : une ligne par tâche, artisans et nous mêlés, dans l'ordre.
+  // Le planning global : une ligne par tâche, artisans et nous mêlés, par date.
+  // Le début réel (passage « En cours ») reste caché : seule la date de
+  // réalisation s'affiche, avec la durée réelle.
   function tableauPlanning(taches, deplacable) {
     const ligne = (t, i) => {
       const fait = t.statut === 'fait';
@@ -384,23 +394,57 @@
       const c = conflit(t);
       const p = trouve('postes', t.poste_id);
       const type = p && p.nom !== t.titre ? p.nom : '';
-      const fleches = deplacable ? `<span class="fleches">
-          <button class="fleche" data-action="monter" data-id="${t.id}" aria-label="Monter" ${i === 0 ? 'disabled' : ''}>▲</button>
-          <button class="fleche" data-action="descendre" data-id="${t.id}" aria-label="Descendre" ${i === taches.length - 1 ? 'disabled' : ''}>▼</button>
-        </span>` : '';
-      return `<tr class="${fait ? 'fait' : ''} ${estArtisan(t) ? 'artisan' : 'nous'}">
-        <td class="p-rang"><span class="rang">${i + 1}</span>${fleches}</td>
+      const sansDate = !debutDe(t);
+      const poignee = deplacable && sansDate ? '<span class="poignee" title="Glisser pour déplacer" aria-hidden="true">⠿</span>' : '';
+      const realise = fait && t.fin_reelle
+        ? `${date(t.fin_reelle)}${t.debut_reel ? `<small class="discret"> · ${jours(t.debut_reel, t.fin_reelle)} j</small>` : ''}` : '—';
+      return `<tr class="${fait ? 'fait' : ''} ${estArtisan(t) ? 'artisan' : 'nous'}${sansDate ? ' sans-date' : ''}" data-id="${t.id}">
+        <td class="p-rang"><span class="rang">${i + 1}</span>${poignee}</td>
         <td class="p-tache"><button class="lien-ligne" data-action="tache" data-id="${t.id}"><strong>${esc(t.titre)}</strong>${type ? `<small>${esc(type)}</small>` : ''}${c ? `<small class="retard">⚠ commence avant la fin de « ${esc(c.titre)} »</small>` : ''}</button></td>
         <td class="p-qui" data-label="Qui"><span class="qui ${estArtisan(t) ? 'artisan' : 'nous'}">${esc(t.responsable || NOUS)}</span></td>
         <td data-label="Prévu"><span class="${retard ? 'retard' : ''}">${periode(t.debut, t.fin) || '—'}</span></td>
-        <td data-label="Réalisé">${periode(t.debut_reel, t.fin_reelle) || '—'}</td>
-        <td class="p-case"><button class="case" data-action="cocher" data-id="${t.id}" aria-pressed="${fait}" aria-label="${fait ? 'Marquer à faire' : 'Marquer fait'}"></button></td>
+        <td data-label="Réalisé">${realise}</td>
+        <td class="p-case"><button class="etat ${t.statut}" data-action="etat" data-id="${t.id}" title="Changer le statut">${STATUTS_TACHE[t.statut]}</button></td>
       </tr>`;
     };
     return `<table class="planning">
-      <thead><tr><th>#</th><th>Tâche</th><th>Qui</th><th>Prévu</th><th>Réalisé</th><th><span class="visually-hidden">Fait</span></th></tr></thead>
+      <thead><tr><th>#</th><th>Tâche</th><th>Qui</th><th>Prévu</th><th>Réalisé</th><th>Statut</th></tr></thead>
       <tbody>${taches.map(ligne).join('')}</tbody>
-    </table>`;
+    </table>
+    ${deplacable && taches.some(t => !debutDe(t)) ? '<p class="discret">Les tâches datées se rangent toutes seules par date. Celles sans date sont à la fin : fais-les glisser par ⠿ pour les ordonner.</p>' : ''}`;
+  }
+
+  // Prévu / réalisé : pour chaque tâche commencée, la durée prévue (barre
+  // claire) et la durée réelle (barre pleine, hachurée tant qu'elle est en cours).
+  function vueEcarts(taches) {
+    const lignes = taches.filter(t => t.debut_reel).map(t => ({
+      t,
+      prevu: t.debut && t.fin ? jours(t.debut, t.fin) : null,
+      reel: jours(t.debut_reel, t.fin_reelle || aujourdhui()),
+      enCours: !t.fin_reelle,
+    }));
+    if (!lignes.length) {
+      return '<p class="vide">Rien de commencé pour l\'instant. Passe une tâche « En cours », puis « Réalisé » : le temps passé s\'affichera ici face au prévu.</p>';
+    }
+    const max = Math.max(...lignes.map(l => Math.max(l.prevu || 0, l.reel)));
+    const w = n => `${((n / max) * 100).toFixed(1)}%`;
+    const finies = lignes.filter(l => l.prevu && !l.enCours);
+    const ecartTotal = somme(finies.map(l => l.reel - l.prevu));
+    const signe = n => (n > 0 ? `+${n}` : String(n));
+    const resume = finies.length
+      ? `<p class="resume">${finies.length} tâche${finies.length > 1 ? 's' : ''} terminée${finies.length > 1 ? 's' : ''} : <strong>${somme(finies.map(l => l.prevu))} j prévus</strong>, <strong>${somme(finies.map(l => l.reel))} j réels</strong> (<span class="${ecartTotal > 0 ? 'retard' : 'bon'}">${signe(ecartTotal)} j</span>).</p>` : '';
+    return `${resume}<ul class="ecarts">${lignes.map(l => {
+      const e = l.prevu && !l.enCours ? l.reel - l.prevu : null;
+      return `<li>
+        <button class="lien-ligne e-nom" data-action="tache" data-id="${l.t.id}"><strong>${esc(l.t.titre)}</strong><small>${esc(l.t.responsable || NOUS)}${l.enCours ? ' · en cours' : ''}</small></button>
+        <div class="e-barres">
+          ${l.prevu ? `<span class="e-barre prevu" style="width:${w(l.prevu)}" data-info="Prévu : ${l.prevu} j (${periode(l.t.debut, l.t.fin)})"></span>` : '<span class="e-sans">pas de dates prévues</span>'}
+          <span class="e-barre reel${l.enCours ? ' en-cours' : ''}" style="width:${w(l.reel)}" data-info="Réalisé : ${l.reel} j${l.enCours ? ' à ce jour' : ''}"></span>
+        </div>
+        <span class="e-chiffre">${l.reel} j${e != null ? `<small class="${e > 0 ? 'retard' : 'bon'}">${signe(e)} j</small>` : l.prevu ? `<small class="discret">sur ${l.prevu} j</small>` : ''}</span>
+      </li>`;
+    }).join('')}</ul>
+    <ul class="legende"><li><i class="l-e-prevu"></i>Prévu</li><li><i class="l-e-reel"></i>Réalisé</li><li><i class="l-e-cours"></i>En cours</li></ul>`;
   }
 
   // Gantt : une ligne par tâche datée, dans l'ordre du planning. Barre claire
@@ -453,10 +497,11 @@
 
   function vuePlanning() {
     const taches = trierTaches(D.taches).filter(t => filtres.planning === 'tout' || (filtres.planning === 'nous') !== estArtisan(t));
-    const choix = `<div class="choix-planning">${puces('vue', { liste: 'Liste', gantt: 'Gantt' })}${puces('planning', { tout: 'Tout', artisans: 'Artisans', nous: 'Nous' })}</div>`;
+    const choix = `<div class="choix-planning">${puces('vue', { liste: 'Liste', gantt: 'Gantt', ecarts: 'Prévu / réalisé' })}${puces('planning', { tout: 'Tout', artisans: 'Artisans', nous: 'Nous' })}</div>`;
     const contenu = !taches.length ? '<p class="vide">Rien à afficher.</p>'
       : filtres.vue === 'gantt' ? vueGantt(taches)
-        : tableauPlanning(taches, filtres.planning === 'tout');
+        : filtres.vue === 'ecarts' ? vueEcarts(taches)
+          : tableauPlanning(taches, filtres.planning === 'tout');
     return `<header class="entete"><h1>Planning</h1><button class="btn" data-action="nouvelle-tache">Ajouter une tâche</button></header>
       ${choix}${contenu}`;
   }
@@ -914,7 +959,12 @@
         },
         { nom: 'notes', libelle: 'Notes', type: 'textarea' },
       ],
-      enregistrer: x => (v.id ? db.modifier('taches', v.id, x) : db.ajouter('taches', x)),
+      enregistrer: x => {
+        // Même règle que le bouton de statut : les dates réelles se notent seules.
+        if (x.statut !== 'a_faire') x.debut_reel = x.debut_reel ?? aujourdhui();
+        if (x.statut === 'fait') x.fin_reelle = x.fin_reelle ?? aujourdhui();
+        return v.id ? db.modifier('taches', v.id, x) : db.ajouter('taches', x);
+      },
       supprimer: v.id && (() => db.supprimer('taches', v.id)),
     });
   }
@@ -965,21 +1015,25 @@
 
   const prochainOrdre = () => Math.max(0, ...D.taches.map(t => t.ordre)) + 10;
 
-  // ▲ ▼ : échange la place de deux tâches voisines dans l'enchaînement.
-  async function deplacer(id, sens) {
-    const liste = trierTaches(D.taches);
-    const i = liste.findIndex(t => t.id === id);
-    const j = i + sens;
-    if (i < 0 || j < 0 || j >= liste.length) return;
-    [liste[i], liste[j]] = [liste[j], liste[i]];
+  // Nouvel ordre des tâches sans date, après un glisser-déposer.
+  async function reordonner(ids) {
     try {
-      for (const [k, t] of liste.entries()) {
-        if (t.ordre !== (k + 1) * 10) await db.modifier('taches', t.id, { ordre: (k + 1) * 10 });
+      for (const [k, id] of ids.entries()) {
+        if (trouve('taches', id).ordre !== (k + 1) * 10) await db.modifier('taches', id, { ordre: (k + 1) * 10 });
       }
     } catch (e) {
       message(e.message, true);
     }
     await rafraichir();
+  }
+
+  // Statut suivant : À faire → En cours (début réel noté) → Réalisé (fin
+  // réelle notée) → À faire (dates réelles effacées).
+  function etatSuivant(t) {
+    const auj = aujourdhui();
+    if (t.statut === 'a_faire') return { statut: 'en_cours', debut_reel: t.debut_reel || auj };
+    if (t.statut === 'en_cours') return { statut: 'fait', debut_reel: t.debut_reel || auj, fin_reelle: t.fin_reelle || auj };
+    return { statut: 'a_faire', debut_reel: null, fin_reelle: null };
   }
 
   // ---------- Actions ----------
@@ -1005,21 +1059,20 @@
     'nouvelle-facture': b => formFacture({ statut: 'a_payer', date_facture: aujourdhui(), poste_id: posteDe(b).id, entreprise: posteDe(b).entreprise }),
     facture: b => formFacture(trouve('factures', b.dataset.id)),
     'nouvelle-tache': b => formTache({ statut: 'a_faire', responsable: posteDe(b).entreprise || NOUS, poste_id: posteDe(b).id, ordre: prochainOrdre() }),
-    monter: b => deplacer(b.dataset.id, -1),
-    descendre: b => deplacer(b.dataset.id, 1),
     tache: b => formTache(trouve('taches', b.dataset.id)),
     'nouvelle-relance': b => formRelance({ poste_id: b.dataset.poste, date_relance: aujourdhui() }),
     relance: b => formRelance(trouve('relances', b.dataset.id)),
-    cocher: async b => {
+    etat: async b => {
       const t = trouve('taches', b.dataset.id);
+      b.disabled = true;
       try {
-        const fait = t.statut !== 'fait';
-        await db.modifier('taches', t.id, fait
-          ? { statut: 'fait', fin_reelle: t.fin_reelle || aujourdhui() }
-          : { statut: 'a_faire' });
+        const suite = etatSuivant(t);
+        await db.modifier('taches', t.id, suite);
         await rafraichir();
+        message(`${t.titre} : ${STATUTS_TACHE[suite.statut]}`);
       } catch (e) {
         message(e.message, true);
+        b.disabled = false;
       }
     },
     budget: () => formBudget(),
@@ -1056,6 +1109,32 @@
     ACTIONS[b.dataset.action](b);
   });
   window.addEventListener('hashchange', () => { afficher(); window.scrollTo(0, 0); });
+
+  // Glisser-déposer des tâches sans date par leur poignée ⠿ (souris et doigt).
+  document.addEventListener('pointerdown', e => {
+    const poignee = e.target.closest('.poignee');
+    if (!poignee) return;
+    e.preventDefault();
+    const ligne = poignee.closest('tr');
+    const corps = ligne.parentElement;
+    ligne.classList.add('glisse');
+    const bouger = ev => {
+      const sous = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('tr.sans-date');
+      if (!sous || sous === ligne || sous.parentElement !== corps) return;
+      const r = sous.getBoundingClientRect();
+      corps.insertBefore(ligne, ev.clientY < r.top + r.height / 2 ? sous : sous.nextSibling);
+    };
+    const lacher = () => {
+      removeEventListener('pointermove', bouger);
+      removeEventListener('pointerup', lacher);
+      removeEventListener('pointercancel', lacher);
+      ligne.classList.remove('glisse');
+      reordonner([...corps.querySelectorAll('tr.sans-date')].map(tr => tr.dataset.id));
+    };
+    addEventListener('pointermove', bouger);
+    addEventListener('pointerup', lacher);
+    addEventListener('pointercancel', lacher);
+  });
 
   // Infobulle des graphiques : au survol sur PC, au toucher sur téléphone.
   const bulle = $('#infobulle');
