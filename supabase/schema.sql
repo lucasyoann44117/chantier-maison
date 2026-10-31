@@ -212,3 +212,4 @@ create table drive_connexion (
 );
 alter table drive_connexion enable row level security;
 revoke all on drive_connexion from anon, authenticated;
+grant select, insert, update, delete on drive_connexion to service_role;
