@@ -119,9 +119,14 @@ create table taches (
   titre text not null,
   responsable text,
   poste_id uuid references postes (id) on delete set null,
+  -- Prévu (debut, fin) et réalisé (debut_reel, fin_reelle).
   debut date,
   fin date,
+  debut_reel date,
+  fin_reelle date,
   statut text not null default 'a_faire' check (statut in ('a_faire', 'en_cours', 'fait')),
+  -- Tâche qui doit être finie avant celle-ci (ordre d'intervention).
+  apres_id uuid references taches (id) on delete set null,
   notes text,
   created_at timestamptz not null default now()
 );

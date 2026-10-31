@@ -242,7 +242,7 @@ main > section, .bloc { display: flex; flex-direction: column; gap: 10px; }
   color: var(--encre);
   cursor: pointer;
 }
-.puce[aria-pressed="true"] { background: var(--plan); border-color: var(--plan); color: var(--sur-plan); }
+.puce[aria-pressed="true"] { background: var(--lien); border-color: var(--lien); color: var(--surface); }
 
 .pastille {
   flex: none;
@@ -276,6 +276,9 @@ main > section, .bloc { display: flex; flex-direction: column; gap: 10px; }
   border-top: 4px solid var(--c);
   border-radius: var(--rayon);
 }
+a.chiffre { color: inherit; text-decoration: none; transition: transform .15s ease, box-shadow .15s ease; }
+a.chiffre:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgb(0 0 0 / .08); }
+.chiffre-voir { position: absolute; top: 10px; right: 12px; font-style: normal; font-size: 1.4rem; line-height: 1; color: var(--doux); }
 .chiffre.devis { --c: var(--lien); }
 .chiffre.facture { --c: var(--jaune); }
 .chiffre.paye { --c: var(--ok); }
@@ -373,6 +376,107 @@ main > section, .bloc { display: flex; flex-direction: column; gap: 10px; }
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* ---------- Gantt ---------- */
+
+.choix-planning { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.gantt-cadre {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon);
+}
+.gantt { width: max-content; min-width: 100%; font-size: 14px; }
+.g-ligne { display: flex; border-top: 1px solid var(--trait); }
+.g-ligne:first-child { border-top: 0; }
+.g-nom {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: none;
+  width: 190px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--surface);
+  border-right: 1px solid var(--trait);
+}
+.g-nom strong { font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.g-nom small { font-size: 12px; }
+.g-piste {
+  position: relative;
+  flex: none;
+  width: var(--largeur);
+  min-height: 46px;
+  background:
+    linear-gradient(var(--mal), var(--mal)) var(--auj) 0 / 2px 100% no-repeat,
+    repeating-linear-gradient(90deg, var(--trait) 0 1px, transparent 1px var(--semaine));
+}
+.g-tete .g-piste { min-height: 28px; }
+.g-tete .g-piste span { position: absolute; top: 6px; padding-left: 4px; font-size: 12px; font-weight: 600; color: var(--doux); text-transform: capitalize; border-left: 2px solid var(--doux); }
+.g-barre {
+  position: absolute;
+  top: 13px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+/* Prévu : barre claire ; réalisé : barre pleine, plus fine, par-dessus. */
+.g-barre.prevu.artisan { background: color-mix(in srgb, var(--c-devis) 35%, var(--surface)); }
+.g-barre.prevu.nous { background: color-mix(in srgb, var(--c-facture) 40%, var(--surface)); }
+.g-barre.reel { top: 18px; height: 10px; }
+.g-barre.reel.artisan { background: var(--c-devis); }
+.g-barre.reel.nous { background: var(--c-facture); }
+.g-barre.fait { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--ok); }
+.g-barre.conflit { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--mal); }
+.g-barre.jalon { width: 16px !important; height: 16px; top: 15px; margin-left: -8px; border-radius: 3px; transform: rotate(45deg); }
+.g-barre:focus-visible { outline: 2px solid var(--encre); outline-offset: 2px; }
+.l-artisan { background: var(--c-devis); }
+.l-nous { background: var(--c-facture); }
+.l-prevu { background: color-mix(in srgb, var(--doux) 35%, var(--surface)); height: 12px !important; }
+.l-reel { background: var(--doux); height: 6px !important; }
+
+/* ---------- Planning global ---------- */
+
+.planning {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon);
+  overflow: hidden;
+}
+.planning th, .planning td { padding: 9px 10px; border-bottom: 1px solid var(--trait); text-align: left; vertical-align: middle; }
+.planning tbody tr:last-child td { border-bottom: 0; }
+.planning thead th { font-family: var(--titre); font-size: 14px; font-weight: 600; color: var(--sur-plan); background: var(--plan); text-transform: uppercase; letter-spacing: .06em; }
+.planning td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.planning .p-tache { white-space: normal; width: 100%; }
+.planning .p-tache button { display: flex; flex-direction: column; }
+.planning .p-tache strong { font-weight: 600; }
+.planning .p-tache small { font-size: 13px; }
+.planning tr.fait .p-tache strong { text-decoration: line-through; color: var(--doux); }
+.p-rang { width: 1%; }
+.p-rang .rang { width: 28px; height: 28px; font-size: 1rem; }
+.planning tr.artisan .rang { background: var(--plan); color: var(--sur-plan); }
+.p-rang { position: relative; }
+.fleches { display: inline-flex; flex-direction: column; vertical-align: middle; margin-left: 4px; }
+.fleche { font-size: 10px; line-height: 1; padding: 2px 4px; border: 0; background: none; color: var(--doux); cursor: pointer; }
+.fleche:hover:not(:disabled) { color: var(--encre); }
+.fleche:disabled { opacity: .25; cursor: default; }
+.qui { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.qui.artisan { background: var(--lien-doux); color: var(--lien); }
+.qui.nous { background: var(--att-doux); color: var(--att); }
+.p-case { width: 1%; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.l-conflit { background: var(--surface); box-shadow: inset 0 0 0 2px var(--mal); }
+.l-auj { background: var(--mal); width: 3px !important; height: 14px !important; }
+.a-dater { display: flex; flex-wrap: wrap; gap: 6px; }
+a.puce { text-decoration: none; }
 
 /* ---------- Mètre ruban (avancement) ---------- */
 
@@ -641,6 +745,23 @@ textarea { resize: vertical; }
   .toast { bottom: calc(78px + env(safe-area-inset-bottom)); }
   .compte-mobile { display: block; margin: 0; text-align: center; }
   .chiffres { grid-template-columns: 1fr 1fr; }
+  .g-nom { width: 120px; padding: 6px 8px; }
+
+  /* Le planning devient une fiche par tâche. */
+  .planning, .planning tbody, .planning tr, .planning td { display: block; }
+  .planning thead { display: none; }
+  .planning tr { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "rang tache case" "rang qui qui" "rang prevu reel"; gap: 4px 10px; padding: 10px 12px; border-bottom: 1px solid var(--trait); }
+  .planning tbody tr:last-child { border-bottom: 0; }
+  .planning td { padding: 0; border: 0; white-space: normal; }
+  .planning .p-rang { grid-area: rang; }
+  .planning .p-tache { grid-area: tache; }
+  .planning .p-case { grid-area: case; }
+  .planning .p-qui { grid-area: qui; }
+  .planning td[data-label="Prévu"] { grid-area: prevu; }
+  .planning td[data-label="Réalisé"] { grid-area: reel; }
+  .planning td[data-label="Prévu"]::before, .planning td[data-label="Réalisé"]::before { content: attr(data-label) " : "; color: var(--doux); font-size: 12px; }
+  .planning .p-qui::before { content: none; }
+  .fleches { flex-direction: row; margin: 4px 0 0; }
   .chiffre strong { font-size: 1.45rem; }
   .champs { grid-template-columns: 1fr; }
 

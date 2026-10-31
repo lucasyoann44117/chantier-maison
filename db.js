@@ -95,6 +95,7 @@ function baseDemo() {
         d.devis_historique = d.devis_historique.filter(x => x.devis_id !== id);
         d.factures.forEach(x => { if (x.devis_id === id) x.devis_id = null; });
       }
+      if (table === 'taches') d.taches.forEach(x => { if (x.apres_id === id) x.apres_id = null; });
       if (table === 'postes') {
         d.relances = d.relances.filter(x => x.poste_id !== id);
         for (const t of ['devis', 'factures', 'taches']) d[t].forEach(x => { if (x.poste_id === id) x.poste_id = null; });
