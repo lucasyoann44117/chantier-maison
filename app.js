@@ -25,7 +25,7 @@
   };
   const TABLES = ['postes', 'devis', 'devis_historique', 'factures', 'taches', 'relances', 'reglages', 'documents'];
   const D = Object.fromEntries(TABLES.map(t => [t, []]));
-  const filtres = { planning: 'tout', vue: 'liste', factures: 'a_payer', documents: 'tous' };
+  const filtres = { planning: 'tout', vue: 'liste', mode: 'prevu', factures: 'a_payer', documents: 'tous' };
   // État du Drive, donné par la sauvegarde lancée à l'ouverture.
   let drive = null;
 
@@ -344,7 +344,7 @@
           <span class="corps"><strong>${date(r.date_relance)}${r.moyen ? ` · ${esc(MOYENS[r.moyen] || r.moyen)}` : ''}</strong><small>${esc(r.reponse) || 'Pas de réponse notée'}${r.auteur ? ` · par ${esc(r.auteur)}` : ''}</small></span>
         </button></li>`).join('')}</ul>`, 'Aucune relance.')}
       ${section('Documents', 'nouveau-document', documents.length && listeDocuments(documents), 'Aucun document.')}
-      ${section('Au planning', 'nouvelle-tache', taches.length && tableauPlanning(trierTaches(taches), false), 'Aucune tâche liée.')}`;
+      ${section('Au planning', 'nouvelle-tache', taches.length && listePlanning(taches, 'prevu', false), 'Aucune tâche liée.')}`;
   }
 
   function ligneDevis(d) {
@@ -371,14 +371,38 @@
   const estArtisan = t => ![NOUS, ...AUTEURS].includes(t.responsable || NOUS);
   const debutDe = t => t.debut_reel || t.debut || t.fin;
   const finDe = t => t.fin_reelle || t.fin || t.debut_reel || t.debut;
-  // Par date de début (réelle, sinon prévue) : pour changer l'ordre, on change
-  // les dates. Les tâches sans date suivent, dans l'ordre choisi à la main.
-  const trierTaches = liste => liste.slice().sort((a, b) => {
-    const da = debutDe(a), db = debutDe(b);
+  // Planning prévu ou réalisé : chacun a ses propres dates, l'un ne change
+  // jamais l'ordre de l'autre.
+  const DATES = {
+    prevu: { debut: t => t.debut || t.fin, fin: t => t.fin || t.debut },
+    realise: { debut: t => t.debut_reel, fin: t => t.fin_reelle || aujourdhui() },
+  };
+  // Par date de début : pour changer l'ordre, on change les dates. Les tâches
+  // sans date suivent, dans l'ordre choisi à la main.
+  const trierTaches = (liste, mode = 'prevu') => liste.slice().sort((a, b) => {
+    const da = DATES[mode].debut(a), db = DATES[mode].debut(b);
     if (da && db) return da.localeCompare(db) || (a.ordre - b.ordre);
     if (da || db) return da ? -1 : 1;
     return a.ordre - b.ordre;
   });
+  // Étapes : les tâches qui commencent avant la fin d'une autre de l'étape sont
+  // en parallèle et partagent la même ligne. Les tâches sans date sont seules.
+  function etapes(liste, mode) {
+    const { debut, fin } = DATES[mode];
+    const groupes = [];
+    let finEtape = null;
+    for (const t of liste) {
+      const d = debut(t);
+      if (d && finEtape && d < finEtape) {
+        groupes[groupes.length - 1].push(t);
+        if (fin(t) > finEtape) finEtape = fin(t);
+      } else {
+        groupes.push([t]);
+        finEtape = d ? fin(t) : null;
+      }
+    }
+    return groupes;
+  }
   // Durée en jours calendaires, bornes comprises.
   const jours = (debut, fin) => Math.round((jour(fin) - jour(debut)) / 86400000) + 1;
 
@@ -390,34 +414,41 @@
     return finAvant && debut && debut < finAvant ? avant : null;
   }
 
-  // Le planning global : une ligne par tâche, artisans et nous mêlés, par date.
-  // Le début réel (passage « En cours ») reste caché : seule la date de
-  // réalisation s'affiche, avec la durée réelle.
-  function tableauPlanning(taches, deplacable) {
-    const ligne = (t, i) => {
-      const fait = t.statut === 'fait';
-      const retard = !fait && !t.fin_reelle && t.fin && t.fin < aujourdhui();
-      const c = conflit(t);
-      const p = trouve('postes', t.poste_id);
-      const type = p && p.nom !== t.titre ? p.nom : '';
-      const sansDate = !debutDe(t);
-      const poignee = deplacable && sansDate ? '<span class="poignee" title="Glisser pour déplacer" aria-hidden="true">⠿</span>' : '';
-      const realise = fait && t.fin_reelle
-        ? `${date(t.fin_reelle)}${t.debut_reel ? `<small class="discret"> · ${jours(t.debut_reel, t.fin_reelle)} j</small>` : ''}` : '—';
-      return `<tr class="${fait ? 'fait' : ''} ${estArtisan(t) ? 'artisan' : 'nous'}${sansDate ? ' sans-date' : ''}" data-id="${t.id}">
-        <td class="p-rang"><span class="rang">${i + 1}</span>${poignee}</td>
-        <td class="p-tache"><button class="lien-ligne" data-action="tache" data-id="${t.id}"><strong>${esc(t.titre)}</strong>${type ? `<small>${esc(type)}</small>` : ''}${c ? `<small class="retard">⚠ commence avant la fin de « ${esc(c.titre)} »</small>` : ''}</button></td>
-        <td class="p-qui" data-label="Qui"><span class="qui ${estArtisan(t) ? 'artisan' : 'nous'}">${esc(t.responsable || NOUS)}</span></td>
-        <td data-label="Prévu"><span class="${retard ? 'retard' : ''}">${periode(t.debut, t.fin) || '—'}</span></td>
-        <td data-label="Réalisé">${realise}</td>
-        <td class="p-case"><button class="etat ${t.statut}" data-action="etat" data-id="${t.id}" title="Changer le statut">${STATUTS_TACHE[t.statut]}</button></td>
-      </tr>`;
-    };
-    return `<table class="planning">
-      <thead><tr><th>#</th><th>Tâche</th><th>Qui</th><th>Prévu</th><th>Réalisé</th><th>Statut</th></tr></thead>
-      <tbody>${taches.map(ligne).join('')}</tbody>
-    </table>
-    ${deplacable && taches.some(t => !debutDe(t)) ? '<p class="discret">Les tâches datées se rangent toutes seules par date. Celles sans date sont à la fin : fais-les glisser par ⠿ pour les ordonner.</p>' : ''}`;
+  // Une tâche du planning. En prévu : ses dates prévues ; en réalisé : sa date
+  // de fin et sa durée (le début réel reste caché).
+  function carteTache(t, mode) {
+    const fait = t.statut === 'fait';
+    const retard = !fait && t.fin && t.fin < aujourdhui();
+    const c = conflit(t);
+    const p = trouve('postes', t.poste_id);
+    const type = p && p.nom !== t.titre ? p.nom : '';
+    const quand = mode === 'prevu'
+      ? `<span class="${retard ? 'retard' : ''}">${periode(t.debut, t.fin) || '<span class="discret">à dater</span>'}</span>`
+      : fait ? `Terminé le ${date(t.fin_reelle)} <span class="discret">· ${jours(t.debut_reel, t.fin_reelle)} j</span>`
+        : `<span class="discret">En cours depuis ${jours(t.debut_reel, aujourdhui())} j</span>`;
+    return `<div class="tache-carte ${estArtisan(t) ? 'artisan' : 'nous'}${fait ? ' fait' : ''}">
+      <button class="lien-ligne t-titre" data-action="tache" data-id="${t.id}"><strong>${esc(t.titre)}</strong>${type ? `<small>${esc(type)}</small>` : ''}${c && mode === 'prevu' ? `<small class="retard">⚠ commence avant la fin de « ${esc(c.titre)} »</small>` : ''}</button>
+      <button class="etat ${t.statut}${t.id === carteTache.vient ? ' vient' : ''}" data-action="etat" data-id="${t.id}" title="Changer le statut">${STATUTS_TACHE[t.statut]}</button>
+      <div class="t-infos"><span class="qui ${estArtisan(t) ? 'artisan' : 'nous'}">${esc(t.responsable || NOUS)}</span>${quand}</div>
+    </div>`;
+  }
+
+  // Le planning global : une ligne par étape, artisans et nous mêlés, par date.
+  // Les tâches en parallèle sont côte à côte ; celles sans date, à la fin, se
+  // déplacent par glisser-déposer.
+  function listePlanning(taches, mode, deplacable) {
+    const liste = mode === 'prevu' ? trierTaches(taches) : trierTaches(taches.filter(t => t.debut_reel), 'realise');
+    if (!liste.length) {
+      return mode === 'prevu' ? '<p class="vide">Rien à afficher.</p>'
+        : '<p class="vide">Rien de commencé pour l\'instant. Une tâche apparaît ici dès qu\'elle passe « En cours ».</p>';
+    }
+    const groupes = etapes(liste, mode);
+    const sansDate = g => mode === 'prevu' && !DATES.prevu.debut(g[0]);
+    return `<ol class="etapes">${groupes.map((g, i) => `<li class="etape${g.length > 1 ? ' parallele' : ''}${sansDate(g) ? ' sans-date' : ''}" data-id="${g[0].id}">
+        <div class="e-rang"><span class="rang">${i + 1}</span>${g.length > 1 ? '<small>en parallèle</small>' : ''}${deplacable && sansDate(g) ? '<span class="poignee" title="Glisser pour déplacer" aria-hidden="true">⠿</span>' : ''}</div>
+        <div class="e-taches">${g.map(t => carteTache(t, mode)).join('')}</div>
+      </li>`).join('')}</ol>
+    ${deplacable && groupes.some(sansDate) ? '<p class="discret">Les tâches datées se rangent toutes seules par date, et celles qui se chevauchent se mettent côte à côte. Celles sans date sont à la fin : fais-les glisser par ⠿ pour les ordonner.</p>' : ''}`;
   }
 
   // Prévu / réalisé : pour chaque tâche commencée, la durée prévue (barre
@@ -503,11 +534,12 @@
 
   function vuePlanning() {
     const taches = trierTaches(D.taches).filter(t => filtres.planning === 'tout' || (filtres.planning === 'nous') !== estArtisan(t));
-    const choix = `<div class="choix-planning">${puces('vue', { liste: 'Liste', gantt: 'Gantt', ecarts: 'Prévu / réalisé' })}${puces('planning', { tout: 'Tout', artisans: 'Artisans', nous: 'Nous' })}</div>`;
+    const mode = filtres.vue === 'liste' ? puces('mode', { prevu: 'Prévu', realise: 'Réalisé' }) : '';
+    const choix = `<div class="choix-planning">${puces('vue', { liste: 'Liste', gantt: 'Gantt', ecarts: 'Écarts' })}${mode}${puces('planning', { tout: 'Tout', artisans: 'Artisans', nous: 'Nous' })}</div>`;
     const contenu = !taches.length ? '<p class="vide">Rien à afficher.</p>'
       : filtres.vue === 'gantt' ? vueGantt(taches)
         : filtres.vue === 'ecarts' ? vueEcarts(taches)
-          : tableauPlanning(taches, filtres.planning === 'tout');
+          : listePlanning(taches, filtres.mode, filtres.planning === 'tout');
     return `<header class="entete"><h1>Planning</h1><button class="btn" data-action="nouvelle-tache">Ajouter une tâche</button></header>
       ${choix}${contenu}`;
   }
@@ -1073,7 +1105,11 @@
       try {
         const suite = datesStatut(t, STATUT_SUIVANT[t.statut]);
         await db.modifier('taches', t.id, suite);
+        // Seul le bouton touché rebondit, une fois.
+        carteTache.vient = t.id;
+        vibrer(10);
         await rafraichir();
+        carteTache.vient = null;
         message(`${t.titre} : ${STATUTS_TACHE[suite.statut]}`);
       } catch (e) {
         message(e.message, true);
@@ -1113,28 +1149,61 @@
     e.preventDefault();
     ACTIONS[b.dataset.action](b);
   });
-  window.addEventListener('hashchange', () => { afficher(); window.scrollTo(0, 0); });
+  // Changement d'écran : une courte entrée en fondu, comme dans une appli.
+  window.addEventListener('hashchange', () => {
+    afficher();
+    window.scrollTo(0, 0);
+    const c = $('#contenu');
+    c.classList.remove('entree');
+    void c.offsetWidth;
+    c.classList.add('entree');
+  });
 
-  // Glisser-déposer des tâches sans date par leur poignée ⠿ (souris et doigt).
+  // Glisser-déposer des tâches sans date par leur poignée ⠿ (souris et doigt),
+  // comme dans une appli : la carte suit le doigt, les autres s'écartent en
+  // glissant, une petite vibration marque la prise et chaque changement de place.
+  const vibrer = ms => { try { navigator.vibrate?.(ms); } catch (e) { /* non pris en charge */ } };
   document.addEventListener('pointerdown', e => {
     const poignee = e.target.closest('.poignee');
     if (!poignee) return;
     e.preventDefault();
-    const ligne = poignee.closest('tr');
+    const ligne = poignee.closest('li.etape');
     const corps = ligne.parentElement;
+    const prise = e.clientY - ligne.getBoundingClientRect().top;
+    // Position de la ligne sans décalage, d'après sa place dans la liste.
+    const hautNaturel = () => corps.getBoundingClientRect().top + ligne.offsetTop - corps.offsetTop;
     ligne.classList.add('glisse');
+    vibrer(12);
+    const suivre = y => { ligne.style.transform = `translateY(${y - prise - hautNaturel()}px)`; };
     const bouger = ev => {
-      const sous = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('tr.sans-date');
+      if (ev.clientY < 70) scrollBy(0, -10);
+      else if (ev.clientY > innerHeight - 110) scrollBy(0, 10);
+      suivre(ev.clientY);
+      const sous = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('li.etape.sans-date');
       if (!sous || sous === ligne || sous.parentElement !== corps) return;
       const r = sous.getBoundingClientRect();
-      corps.insertBefore(ligne, ev.clientY < r.top + r.height / 2 ? sous : sous.nextSibling);
+      const avant = ev.clientY < r.top + r.height / 2 ? sous : sous.nextSibling;
+      if (avant === ligne || avant === ligne.nextSibling) return;
+      const positions = new Map([...corps.children].map(el => [el, el.getBoundingClientRect().top]));
+      corps.insertBefore(ligne, avant);
+      suivre(ev.clientY);
+      for (const [el, haut] of positions) {
+        const dy = haut - el.getBoundingClientRect().top;
+        if (el !== ligne && dy) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      }
+      vibrer(6);
     };
     const lacher = () => {
       removeEventListener('pointermove', bouger);
       removeEventListener('pointerup', lacher);
       removeEventListener('pointercancel', lacher);
-      ligne.classList.remove('glisse');
-      reordonner([...corps.querySelectorAll('tr.sans-date')].map(tr => tr.dataset.id));
+      // La carte se pose à sa nouvelle place, puis l'ordre s'enregistre.
+      ligne.classList.add('pose');
+      ligne.style.transform = '';
+      setTimeout(() => {
+        ligne.classList.remove('glisse', 'pose');
+        reordonner([...corps.querySelectorAll('li.etape.sans-date')].map(li => li.dataset.id));
+      }, 180);
     };
     addEventListener('pointermove', bouger);
     addEventListener('pointerup', lacher);

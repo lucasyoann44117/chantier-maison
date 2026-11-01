@@ -442,33 +442,43 @@ a.chiffre:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgb(0 0 0 
 
 /* ---------- Planning global ---------- */
 
-.planning {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
+/* Une étape par ligne ; les tâches en parallèle s'y partagent la largeur. */
+.etapes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.etape { display: flex; gap: 10px; align-items: stretch; }
+.e-rang { flex: none; width: 34px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 10px; }
+.e-rang .rang { width: 30px; height: 30px; }
+.e-rang small { font-size: 11px; color: var(--doux); text-align: center; line-height: 1.2; }
+.e-taches { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+.etape.parallele .e-taches { padding: 6px; border: 1px dashed var(--trait); border-radius: calc(var(--rayon) + 4px); }
+.tache-carte {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "titre etat" "infos infos";
+  gap: 6px 10px;
+  align-items: start;
+  padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--trait);
+  border-left: 4px solid var(--att);
   border-radius: var(--rayon);
-  overflow: hidden;
 }
-.planning th, .planning td { padding: 9px 10px; border-bottom: 1px solid var(--trait); text-align: left; vertical-align: middle; }
-.planning tbody tr:last-child td { border-bottom: 0; }
-.planning thead th { font-family: var(--titre); font-size: 14px; font-weight: 600; color: var(--sur-plan); background: var(--plan); text-transform: uppercase; letter-spacing: .06em; }
-.planning td { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.planning .p-tache { white-space: normal; width: 100%; }
-.planning .p-tache button { display: flex; flex-direction: column; }
-.planning .p-tache strong { font-weight: 600; }
-.planning .p-tache small { font-size: 13px; }
-.planning tr.fait .p-tache strong { text-decoration: line-through; color: var(--doux); }
-.p-rang { width: 1%; }
-.p-rang .rang { width: 28px; height: 28px; font-size: 1rem; }
-.planning tr.artisan .rang { background: var(--plan); color: var(--sur-plan); }
-.p-rang { position: relative; }
+.tache-carte.artisan { border-left-color: var(--lien); }
+.t-titre { grid-area: titre; display: flex; flex-direction: column; min-width: 0; }
+.t-titre strong { font-weight: 600; }
+.t-titre small { font-size: 13px; color: var(--doux); }
+.t-titre:hover strong { color: var(--lien); }
+.tache-carte .etat { grid-area: etat; }
+.t-infos { grid-area: infos; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.t-infos .discret { font-size: 13px; }
+.tache-carte.fait .t-titre strong { text-decoration: line-through; color: var(--doux); }
 /* Poignée de glisser-déposer des tâches sans date. */
-.poignee { display: inline-block; vertical-align: middle; margin-left: 2px; padding: 4px 6px; font-size: 18px; line-height: 1; color: var(--doux); cursor: grab; touch-action: none; user-select: none; }
+.poignee { padding: 2px 6px; font-size: 18px; line-height: 1; color: var(--doux); cursor: grab; touch-action: none; user-select: none; }
 .poignee:hover { color: var(--encre); }
-.planning tr.glisse { opacity: .55; background: var(--surface-douce); }
-.planning tr.glisse .poignee { cursor: grabbing; }
+.etape.glisse { position: relative; z-index: 5; pointer-events: none; }
+.etape.glisse .tache-carte { transform: scale(1.02); box-shadow: 0 14px 32px rgb(0 0 0 / .28); border-color: var(--jaune); transition: transform .15s, box-shadow .15s; }
+.etape.glisse .poignee { cursor: grabbing; color: var(--jaune); }
+.etape.pose { transition: transform .18s cubic-bezier(.2,.8,.2,1); }
 /* Statut : un clic passe à l'étape suivante. */
 .etat { font: inherit; font-size: 13px; font-weight: 600; min-width: 84px; min-height: 32px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--trait); background: var(--surface); color: var(--doux); cursor: pointer; white-space: nowrap; }
 .etat:hover { border-color: var(--doux); color: var(--encre); }
@@ -743,6 +753,29 @@ dialog.plein[open] { display: flex; flex-direction: column; }
   z-index: 20;
 }
 .toast.erreur { background: var(--mal); color: #fff; border-left-color: #fff; }
+.toast:not([hidden]) { animation: toast .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes toast { from { opacity: 0; transform: translate(-50%, 12px); } }
+
+/* ---------- Ressenti d'appli ---------- */
+
+/* Pas de surlignage bleu au toucher, pas de rebond de page, pas de zoom au double tap. */
+html { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+button, a, select, .puce, .etat, .barre nav { touch-action: manipulation; }
+button, .barre nav a, .puce, .etat, .rang, .poignee, .e-rang { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* Tout ce qui se touche s'enfonce légèrement. */
+.btn, .puce, .etat, .ligne, .chiffre, .lien-ligne, .barre nav a, .tache-carte { transition: transform .12s ease, background-color .15s, border-color .15s, color .15s; }
+.btn:active, .puce:active, .etat:active, .barre nav a:active { transform: scale(.95); }
+.ligne:active, .chiffre:active, .tache-carte:has(.t-titre:active) { transform: scale(.985); }
+/* Entrée des écrans et des fenêtres. */
+#contenu.entree { animation: entree .2s ease-out; }
+@keyframes entree { from { opacity: 0; transform: translateY(8px); } }
+dialog[open] { animation: fenetre .22s cubic-bezier(.2,.8,.2,1); }
+dialog[open]::backdrop { animation: voile .22s ease-out; }
+@keyframes fenetre { from { opacity: 0; transform: translateY(24px) scale(.98); } }
+@keyframes voile { from { opacity: 0; } }
+/* Le statut change avec un petit rebond. */
+.etat.vient { animation: rebond .25s ease-out; }
+@keyframes rebond { 40% { transform: scale(1.08); } }
 
 /* ---------- Téléphone ---------- */
 
@@ -788,21 +821,13 @@ dialog.plein[open] { display: flex; flex-direction: column; }
   .chiffres { grid-template-columns: 1fr 1fr; }
   .g-nom { width: 120px; padding: 6px 8px; }
 
-  /* Le planning devient une fiche par tâche. */
-  .planning, .planning tbody, .planning tr, .planning td { display: block; }
-  .planning thead { display: none; }
-  .planning tr { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "rang tache case" "rang qui qui" "rang prevu reel"; gap: 4px 10px; padding: 10px 12px; border-bottom: 1px solid var(--trait); }
-  .planning tbody tr:last-child { border-bottom: 0; }
-  .planning td { padding: 0; border: 0; white-space: normal; }
-  .planning .p-rang { grid-area: rang; }
-  .planning .p-tache { grid-area: tache; }
-  .planning .p-case { grid-area: case; }
-  .planning .p-qui { grid-area: qui; }
-  .planning td[data-label="Prévu"] { grid-area: prevu; }
-  .planning td[data-label="Réalisé"] { grid-area: reel; }
-  .planning td[data-label="Prévu"]::before, .planning td[data-label="Réalisé"]::before { content: attr(data-label) " : "; color: var(--doux); font-size: 12px; }
-  .planning .p-qui::before { content: none; }
-  .poignee { display: block; margin: 6px 0 0; text-align: center; }
+  /* Sur téléphone, les tâches en parallèle restent côte à côte, en fiches étroites. */
+  .etape { gap: 6px; }
+  .e-rang { width: 28px; }
+  .e-taches { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; }
+  .etape.parallele .e-taches { padding: 4px; }
+  .etape.parallele .tache-carte { grid-template-columns: 1fr; grid-template-areas: "titre" "infos" "etat"; padding: 8px 10px; }
+  .etape.parallele .etat { justify-self: start; }
   .ecarts { padding: 10px 12px; }
   .ecarts li { grid-template-columns: 1fr auto; gap: 6px 10px; }
   .e-barres { grid-column: 1 / -1; grid-row: 2; }
@@ -830,5 +855,5 @@ dialog.plein[open] { display: flex; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { scroll-behavior: auto !important; transition: none !important; }
+  * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
