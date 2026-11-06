@@ -1,0 +1,198 @@
+{
+ "title": "Vacances à Majorque",
+ "kicker": "Le récap",
+ "dates": "2 – 5 novembre 2026",
+ "intro": "Quatre étapes entre Palma, le sud-est et la Serra de Tramuntana, retracées à partir des activités Strava.",
+ "hudInfo": "Puig Major 1 436 m",
+ "clockCode": "PMI",
+ "focus": [
+  39.62,
+  2.98
+ ],
+ "names": [
+  "Plage & cathédrale",
+  "Balade touristique",
+  "Footing du matin",
+  "Visite du centre",
+  "Échauffement",
+  "Liaison Palma › Cala Figuera",
+  "Cala Figuera",
+  "Liaison › Cala Mondragó",
+  "Cala Mondragó",
+  "Retour vers Palma",
+  "Marche du matin",
+  "Liaison Palma › Cala Deià",
+  "Cala Deià",
+  "Montée vers Deià",
+  "Deià",
+  "Liaison Deià › Valldemossa",
+  "Valldemossa",
+  "Retour vers Palma",
+  "Santa Catalina"
+ ],
+ "stages": [
+  {
+   "segs": [
+    0,
+    1
+   ],
+   "date": "Lun. 2 nov.",
+   "title": "Palma › Palma",
+   "sub": "Plage, cathédrale et vieille ville",
+   "az": 10
+  },
+  {
+   "segs": [
+    2,
+    3
+   ],
+   "date": "Mar. 3 nov.",
+   "title": "Palma › Palma",
+   "sub": "Footing sous la pluie, puis le centre historique",
+   "az": -25
+  },
+  {
+   "segs": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "date": "Mer. 4 nov.",
+   "title": "Palma › Cala Mondragó",
+   "sub": "Cap au sud-est : Cala Figuera et Mondragó",
+   "az": -40
+  },
+  {
+   "segs": [
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18
+   ],
+   "date": "Jeu. 5 nov.",
+   "title": "Tramuntana › Palma",
+   "sub": "Cala Deià, Deià, Valldemossa, Santa Catalina",
+   "az": 170
+  }
+ ],
+ "places": [
+  [
+   39.5696,
+   2.6502,
+   "Palma",
+   0
+  ],
+  [
+   39.4906,
+   2.8907,
+   "Llucmajor",
+   0
+  ],
+  [
+   39.4307,
+   3.019,
+   "Campos",
+   0
+  ],
+  [
+   39.3546,
+   3.1286,
+   "Santanyí",
+   0
+  ],
+  [
+   39.329,
+   3.172,
+   "Cala Figuera",
+   0
+  ],
+  [
+   39.3525,
+   3.1915,
+   "Cala Mondragó",
+   0
+  ],
+  [
+   39.7107,
+   2.6222,
+   "Valldemossa",
+   0
+  ],
+  [
+   39.748,
+   2.648,
+   "Deià",
+   0
+  ],
+  [
+   39.762,
+   2.644,
+   "Cala Deià",
+   1
+  ],
+  [
+   39.5672,
+   2.6487,
+   "Cathédrale",
+   1
+  ],
+  [
+   39.5745,
+   2.6375,
+   "Santa Catalina",
+   1
+  ],
+  [
+   39.808,
+   2.79,
+   "Puig Major · 1 436 m",
+   0
+  ],
+  [
+   39.735,
+   2.59,
+   "Serra de Tramuntana",
+   2
+  ],
+  [
+   39.62,
+   3.38,
+   "Mer Méditerranée",
+   2
+  ],
+  [
+   39.5,
+   2.45,
+   "Mer Méditerranée",
+   2
+  ]
+ ],
+ "place": "Majorque",
+ "map": {
+  "zoom": 13,
+  "bbox": [
+   2.197,
+   39.164,
+   3.604,
+   40.044
+  ],
+  "chunks": [
+   4,
+   4
+  ],
+  "sentinel": [
+   "S/DD/2025/8/S2A_31SDD_20250811_1_L2A",
+   "T/DE/2025/8/S2A_31TDE_20250811_1_L2A",
+   "S/ED/2025/8/S2B_31SED_20250811_0_L2A",
+   "T/EE/2025/8/S2B_31TEE_20250811_0_L2A"
+  ]
+ }
+}
