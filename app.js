@@ -385,8 +385,10 @@
     if (da || db) return da ? -1 : 1;
     return a.ordre - b.ordre;
   });
-  // Étapes : les tâches qui commencent avant la fin d'une autre de l'étape sont
-  // en parallèle et partagent la même ligne. Les tâches sans date sont seules.
+  // Étapes : les tâches qui commencent avant la fin de la première tâche de
+  // l'étape sont en parallèle et partagent la même ligne. Une tâche longue ne
+  // prolonge pas l'étape, sinon elle avalerait toutes les suivantes.
+  // Les tâches sans date sont seules.
   function etapes(liste, mode) {
     const { debut, fin } = DATES[mode];
     const groupes = [];
@@ -395,7 +397,6 @@
       const d = debut(t);
       if (d && finEtape && d < finEtape) {
         groupes[groupes.length - 1].push(t);
-        if (fin(t) > finEtape) finEtape = fin(t);
       } else {
         groupes.push([t]);
         finEtape = d ? fin(t) : null;
@@ -430,6 +431,7 @@
       <button class="lien-ligne t-titre" data-action="tache" data-id="${t.id}"><strong>${esc(t.titre)}</strong>${type ? `<small>${esc(type)}</small>` : ''}${c && mode === 'prevu' ? `<small class="retard">⚠ commence avant la fin de « ${esc(c.titre)} »</small>` : ''}</button>
       <button class="etat ${t.statut}${t.id === carteTache.vient ? ' vient' : ''}" data-action="etat" data-id="${t.id}" title="Changer le statut">${STATUTS_TACHE[t.statut]}</button>
       <div class="t-infos"><span class="qui ${estArtisan(t) ? 'artisan' : 'nous'}">${esc(t.responsable || NOUS)}</span>${quand}</div>
+      ${t.notes ? `<p class="t-note">${esc(t.notes)}</p>` : ''}
     </div>`;
   }
 
@@ -818,7 +820,7 @@
     return o;
   }
 
-  function ouvrirFormulaire({ titre, champs, valeurs = {}, enregistrer, supprimer, complement = '' }) {
+  function ouvrirFormulaire({ titre, champs, valeurs = {}, enregistrer, supprimer, complement = '', bouton = 'Enregistrer' }) {
     const dlg = $('#dlg');
     dlg.innerHTML = `<form>
       <h2>${esc(titre)}</h2>
@@ -829,7 +831,7 @@
         ${supprimer ? '<button type="button" class="btn danger" data-role="supprimer">Supprimer</button>' : ''}
         <span class="espace"></span>
         <button type="button" class="btn" data-role="annuler">Annuler</button>
-        <button type="submit" class="btn principal">Enregistrer</button>
+        <button type="submit" class="btn principal">${esc(bouton)}</button>
       </footer>
     </form>`;
     const form = dlg.querySelector('form');
@@ -993,7 +995,7 @@
           nom: 'apres_id', libelle: 'Après la fin de',
           type: 'select', options: Object.fromEntries(D.taches.filter(t => t.id !== v.id).map(t => [t.id, `${t.titre} (${t.responsable || NOUS})`])),
         },
-        { nom: 'notes', libelle: 'Notes', type: 'textarea' },
+        { nom: 'notes', libelle: 'Commentaire', type: 'textarea' },
       ],
       enregistrer: x => {
         // Même règle que le bouton : les dates réelles ne bougent qu'au changement de statut.
@@ -1101,6 +1103,24 @@
     relance: b => formRelance(trouve('relances', b.dataset.id)),
     etat: async b => {
       const t = trouve('taches', b.dataset.id);
+      // Passer à « Réalisé » propose un commentaire (comment, quand, avec qui).
+      if (STATUT_SUIVANT[t.statut] === 'fait') {
+        const form = ouvrirFormulaire({
+          titre: `Réalisé · ${t.titre}`,
+          valeurs: t,
+          champs: [{ nom: 'notes', libelle: 'Commentaire (facultatif)', type: 'textarea' }],
+          bouton: 'Marquer réalisé',
+          enregistrer: x => {
+            carteTache.vient = t.id;
+            vibrer(10);
+            return db.modifier('taches', t.id, { ...datesStatut(t, 'fait'), notes: x.notes });
+          },
+        });
+        const zone = form.querySelector('textarea');
+        zone.placeholder = 'Ex. : prévenu par mail le 8 nov.';
+        zone.focus();
+        return;
+      }
       b.disabled = true;
       try {
         const suite = datesStatut(t, STATUT_SUIVANT[t.statut]);
