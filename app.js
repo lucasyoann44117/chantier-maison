@@ -23,7 +23,7 @@
     ajouter: (table, lignes) => base.ajouter(table, [].concat(lignes).map(signer)),
     modifier: (table, id, champs) => base.modifier(table, id, signer(champs)),
   };
-  const TABLES = ['postes', 'devis', 'devis_historique', 'factures', 'taches', 'relances', 'reglages', 'documents'];
+  const TABLES = ['postes', 'devis', 'devis_historique', 'factures', 'taches', 'relances', 'reglages', 'documents', 'prets'];
   const D = Object.fromEntries(TABLES.map(t => [t, []]));
   const filtres = { planning: 'tout', vue: 'liste', mode: 'prevu', factures: 'a_payer', documents: 'tous' };
   // État du Drive, donné par la sauvegarde lancée à l'ouverture.
@@ -38,7 +38,7 @@
   const SOURCES = { banque: 'Banque', apport: 'Apport personnel' };
   const STATUTS_TACHE = { a_faire: 'À faire', en_cours: 'En cours', fait: 'Réalisé' };
   const MOYENS = { telephone: 'Téléphone', sms: 'SMS', email: 'E-mail', sur_place: 'Sur place' };
-  const TYPES_DOC = { devis: 'Devis', facture: 'Facture', plan: 'Plan', photo: 'Photo', autre: 'Autre' };
+  const TYPES_DOC = { devis: 'Devis', facture: 'Facture', plan: 'Plan', photo: 'Photo', banque: 'Banque', autre: 'Autre' };
 
   // ---------- Outils ----------
 
@@ -183,6 +183,7 @@
         ${chiffre('reste', '#reste', 'Reste à payer', t.reste)}
       </section>
       ${jaugeBudget(t)}
+      ${lienFinancement()}
       <section aria-label="Avancement des travaux">
         ${metre('Travaux', termines / D.postes.length, `${termines} poste${termines > 1 ? 's' : ''} terminé${termines > 1 ? 's' : ''} sur ${D.postes.length}`)}
       </section>
@@ -201,6 +202,16 @@
           <tfoot><tr><td>Total</td><td data-label="Devis">${euros(t.devis)}</td><td data-label="Facturé">${euros(t.facture)}</td><td data-label="Payé">${euros(t.paye)}</td><td data-label="Reste">${euros(t.reste)}</td></tr></tfoot>
         </table>
       </section>${db.demo ? '' : compte}`;
+  }
+
+  // Accès au comparatif des prêts, avec la meilleure offre en lice.
+  function lienFinancement() {
+    const enLice = pretsEnLice();
+    const detail = !D.prets.length ? 'Comparer les offres de prêt'
+      : enLice.length ? `${enLice.length} offre${enLice.length > 1 ? 's' : ''} · la moins chère : ${esc(nomPret(enLice[0].p))}` : 'Aucune offre en lice';
+    return `<ul class="liste"><li><a class="ligne" href="#financement">
+      <span class="corps"><strong>Financement</strong><small>${detail}</small></span>
+      ${enLice.length ? `<span class="montant">${euros(enLice[0].c.cout)}</span>` : ''}</a></li></ul>`;
   }
 
   // Graduation « ronde » de l'axe : 1, 2, 2,5 ou 5 fois une puissance de 10.
@@ -627,7 +638,7 @@
     const liste = D.documents.filter(x => filtres.documents === 'tous' || x.type === filtres.documents);
     return `<header class="entete"><h1>Documents</h1><button class="btn" data-action="nouveau-document">Ajouter un document</button></header>
       ${etatDrive(sous)}
-      ${puces('documents', { tous: 'Tous', devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', autre: 'Autres' })}
+      ${puces('documents', { tous: 'Tous', devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', banque: 'Banque', autre: 'Autres' })}
       ${liste.length ? listeDocuments(liste) : '<p class="vide">Aucun document ici.</p>'}`;
   }
 
@@ -769,9 +780,126 @@
     }
   }
 
-  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, documents: vueDocuments, devis: vueDevis, factures: vueFactures, reste: vueReste };
-  // Devis, factures et reste s'ouvrent depuis les cartes du Bilan.
-  const SOUS_BILAN = ['devis', 'factures', 'reste'];
+  // ---------- Financement (offres et simulations de prêt) ----------
+
+  // Ce que coûte un prêt. Les chiffres de la banque priment ; ceux qui manquent
+  // se calculent (prêt amortissable à mensualités constantes).
+  function coutPret(p) {
+    const capital = num(p.montant) || 0;
+    const n = num(p.duree_mois) || 0;
+    const r = (num(p.taux) || 0) / 1200;
+    const horsAssurance = !n ? 0 : r ? capital * r / (1 - (1 + r) ** -n) : capital / n;
+    const assuranceMois = num(p.assurance_mois) || 0;
+    const c = {
+      capital, n,
+      mensualite: num(p.mensualite) ?? horsAssurance + assuranceMois,
+      interets: num(p.interets) ?? Math.max(0, horsAssurance * n - capital),
+      assurance: num(p.assurance_total) ?? assuranceMois * n,
+      frais: (num(p.frais_dossier) || 0) + (num(p.frais_garantie) || 0),
+    };
+    c.cout = c.interets + c.assurance + c.frais;
+    c.rembourse = capital + c.cout;
+    return c;
+  }
+  const STATUTS_PRET = { simulation: 'Simulation', offre: 'Offre', retenu: 'Retenu', refuse: 'Refusé' };
+  const TON_PRET = { simulation: 'neutre', offre: 'info', retenu: 'ok', refuse: 'mal' };
+  const nomPret = p => [p.banque, p.libelle || (p.duree_mois && `${annees(p.duree_mois)}`)].filter(Boolean).join(' · ');
+  const annees = mois => (mois % 12 ? `${mois} mois` : `${mois / 12} ans`);
+  const taux = v => (num(v) == null ? '—' : `${String(num(v)).replace('.', ',')} %`);
+
+  // Les offres en lice, de la moins chère à la plus chère au total.
+  function pretsEnLice() {
+    return D.prets.filter(p => p.statut !== 'refuse').map(p => ({ p, c: coutPret(p) })).sort((a, b) => a.c.cout - b.c.cout);
+  }
+
+  // « Prendre A plutôt que B » : ce qu'on gagne ou perd par mois et au total.
+  function comparaison(a, b) {
+    const parMois = arrondi(a.c.mensualite - b.c.mensualite);
+    const total = arrondi(a.c.cout - b.c.cout);
+    const mois = !parMois ? 'même mensualité'
+      : parMois > 0 ? `<strong>${euros(parMois)}</strong> de plus par mois` : `<strong>${euros(-parMois)}</strong> de moins par mois`;
+    const tout = !total ? 'même coût au total'
+      : total > 0 ? `<span class="mauvais">${euros(total)} de plus au total</span>` : `<span class="bon">${euros(-total)} d'économie au total</span>`;
+    return `${mois}, ${tout}`;
+  }
+
+  function cartePret({ p, c }, max, moinsCher) {
+    const part = v => `${max ? (v / max) * 100 : 0}%`;
+    const doc = p.document_id && trouve('documents', p.document_id);
+    const ligne = (lib, v) => `<div><dt>${lib}</dt><dd>${v}</dd></div>`;
+    return `<li class="pret${p.statut === 'refuse' ? ' refuse' : ''}">
+      <header><button class="lien-ligne" data-action="pret" data-id="${p.id}"><strong>${esc(nomPret(p))}</strong>${p.date_doc ? `<small>${STATUTS_PRET[p.statut]} du ${date(p.date_doc)}</small>` : ''}</button>${pastille(STATUTS_PRET[p.statut], TON_PRET[p.statut])}</header>
+      <p class="p-cout"><span>Coût du crédit</span><strong>${euros(c.cout)}</strong>${moinsCher && p.statut !== 'refuse'
+        ? (moinsCher.p === p ? '<small class="bon">le moins cher</small>' : `<small>${ecart(arrondi(c.cout - moinsCher.c.cout))} par rapport à ${esc(nomPret(moinsCher.p))}</small>`) : ''}</p>
+      <div class="p-barre" role="img" aria-label="Intérêts ${euros(c.interets)}, assurance ${euros(c.assurance)}, frais ${euros(c.frais)}">
+        <i class="interets" style="width:${part(c.interets)}"></i><i class="assurance" style="width:${part(c.assurance)}"></i><i class="frais" style="width:${part(c.frais)}"></i>
+      </div>
+      <dl class="p-details">
+        ${ligne('Mensualité', `<strong>${euros(c.mensualite)}</strong>`)}
+        ${ligne('Durée', c.n ? annees(c.n) : '—')}
+        ${ligne('Emprunté', euros(c.capital))}
+        ${ligne('Taux · TAEG', `${taux(p.taux)} · ${taux(p.taeg)}`)}
+        ${ligne('<i class="pt interets"></i>Intérêts', euros(c.interets))}
+        ${ligne('<i class="pt assurance"></i>Assurance', euros(c.assurance))}
+        ${ligne('<i class="pt frais"></i>Frais', euros(c.frais))}
+        ${ligne('Total remboursé', euros(c.rembourse))}
+      </dl>
+      ${p.garantie || p.notes ? `<p class="discret">${esc([p.garantie && `Garantie : ${p.garantie}`, p.notes].filter(Boolean).join(' · '))}</p>` : ''}
+      ${doc ? `<button class="btn petit" data-action="ouvrir-document" data-id="${doc.id}">Voir le document</button>` : ''}
+    </li>`;
+  }
+
+  function vueFinancement() {
+    const enLice = pretsEnLice();
+    const refuses = D.prets.filter(p => p.statut === 'refuse').map(p => ({ p, c: coutPret(p) }));
+    const tous = [...enLice, ...refuses];
+    const max = Math.max(0, ...tous.map(x => x.c.cout));
+    const meilleur = enLice[0];
+    const devis = somme(D.postes.map(p => bilanPoste(p).devis));
+    return `<p class="retour"><a href="#bilan">← Bilan</a></p>
+      <header class="entete"><h1>Financement</h1><button class="btn" data-action="nouveau-pret">Ajouter une offre</button></header>
+      ${!tous.length ? '<p class="vide">Aucune offre pour l\'instant. Ajoute les simulations et les offres des banques pour les comparer.</p>' : `
+      ${meilleur ? `<p class="resume">Le moins cher au total : <strong>${esc(nomPret(meilleur.p))}</strong>, ${euros(meilleur.c.cout)} de crédit pour ${euros(meilleur.c.capital)} empruntés${devis ? ` (devis retenus : ${euros(devis)})` : ''}.</p>` : ''}
+      ${enLice.length > 1 ? `<section class="bloc"><h2>Ce que change le choix</h2>
+        <ul class="p-choix">${enLice.slice(1).map(x => `<li><span>${esc(nomPret(x.p))} plutôt que ${esc(nomPret(meilleur.p))}</span><small>${comparaison(x, meilleur)}</small></li>`).join('')}</ul></section>` : ''}
+      <ul class="prets">${tous.map(x => cartePret(x, max, meilleur)).join('')}</ul>
+      <p class="discret">Coût du crédit = intérêts + assurance de vous deux + frais de dossier et de garantie. La banque, elle, ne compte dans son coût total et son TAEG que l'assurance obligatoire : le chiffre ici est donc plus complet. Ce comparatif met les chiffres à plat ; il ne remplace pas un conseil.</p>`}`;
+  }
+
+  function formPret(v) {
+    const banques = [...new Set(['Crédit Mutuel de Bretagne', 'Crédit Agricole', ...D.prets.map(p => p.banque)])];
+    const docs = Object.fromEntries(D.documents.filter(x => x.type === 'banque' || x.id === v.document_id).map(x => [x.id, x.nom]));
+    ouvrirFormulaire({
+      titre: v.id ? 'Modifier l\'offre' : 'Nouvelle offre de prêt',
+      valeurs: v,
+      champs: [
+        { nom: 'banque', libelle: 'Banque', liste: banques, requis: true, demi: true },
+        { nom: 'libelle', libelle: 'Intitulé (facultatif)', demi: true },
+        { nom: 'statut', libelle: 'Statut', type: 'select', options: STATUTS_PRET, requis: true, demi: true },
+        { nom: 'date_doc', libelle: 'Date du document', type: 'date', demi: true },
+        { nom: 'montant', libelle: 'Montant emprunté (€)', type: 'euros', demi: true },
+        { nom: 'duree_mois', libelle: 'Durée (mois)', type: 'number', demi: true },
+        { nom: 'taux', libelle: 'Taux nominal (%)', type: 'euros', demi: true },
+        { nom: 'taeg', libelle: 'TAEG (%)', type: 'euros', demi: true },
+        { nom: 'mensualite', libelle: 'Mensualité assurance comprise (€)', type: 'euros', demi: true },
+        { nom: 'interets', libelle: 'Total des intérêts (€)', type: 'euros', demi: true },
+        { nom: 'assurance_mois', libelle: 'Assurance par mois, à deux (€)', type: 'euros', demi: true },
+        { nom: 'assurance_total', libelle: 'Assurance totale, à deux (€)', type: 'euros', demi: true },
+        { nom: 'frais_dossier', libelle: 'Frais de dossier (€)', type: 'euros', demi: true },
+        { nom: 'frais_garantie', libelle: 'Frais de garantie (€)', type: 'euros', demi: true },
+        { nom: 'garantie', libelle: 'Garantie (caution, hypothèque…)' },
+        { nom: 'document_id', libelle: 'Document (rangé en « Banque »)', type: 'select', options: docs },
+        { nom: 'notes', libelle: 'Notes (conditions, remboursement anticipé…)', type: 'textarea' },
+      ],
+      complement: '<p class="discret">Les champs laissés vides (mensualité, intérêts…) sont calculés à partir du montant, de la durée et du taux.</p>',
+      enregistrer: x => (v.id ? db.modifier('prets', v.id, x) : db.ajouter('prets', x)),
+      supprimer: v.id && (() => db.supprimer('prets', v.id)),
+    });
+  }
+
+  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, documents: vueDocuments, devis: vueDevis, factures: vueFactures, reste: vueReste, financement: vueFinancement };
+  // Devis, factures, reste et financement s'ouvrent depuis le Bilan.
+  const SOUS_BILAN = ['devis', 'factures', 'reste', 'financement'];
 
   function afficher() {
     const [vue, id] = (location.hash.slice(1) || 'bilan').split('/');
@@ -1143,6 +1271,8 @@
     }),
     document: b => formDocument(trouve('documents', b.dataset.id)),
     'ouvrir-document': b => ouvrirDocument(b.dataset.id),
+    'nouveau-pret': () => formPret({ statut: 'simulation', date_doc: aujourdhui() }),
+    pret: b => formPret(trouve('prets', b.dataset.id)),
     'relier-drive': async b => {
       b.disabled = true;
       try {

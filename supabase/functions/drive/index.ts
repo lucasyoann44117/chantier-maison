@@ -22,9 +22,9 @@ const ENVOI = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multi
 const RETOURS = [/^https:\/\/lucasyoann44117\.github\.io\//, /^http:\/\/localhost(:\d+)?\//];
 // Un sous-dossier par type, sous « Chantier maison ».
 const DOSSIERS: Record<string, string> = {
-  devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', autre: 'Autres', sauvegardes: 'Sauvegardes',
+  devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', banque: 'Banque', autre: 'Autres', sauvegardes: 'Sauvegardes',
 };
-const TABLES = ['postes', 'devis', 'devis_historique', 'factures', 'taches', 'relances', 'reglages', 'documents'];
+const TABLES = ['postes', 'devis', 'devis_historique', 'factures', 'taches', 'relances', 'reglages', 'documents', 'prets'];
 const SEMAINE = 7 * 86400000;
 const TAILLE_MAX = 25e6;
 

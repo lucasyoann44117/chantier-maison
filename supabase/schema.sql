@@ -184,7 +184,7 @@ create table documents (
   id uuid primary key default gen_random_uuid(),
   drive_id text not null,
   nom text not null,
-  type text not null default 'autre' check (type in ('devis', 'facture', 'plan', 'photo', 'autre')),
+  type text not null default 'autre' check (type in ('devis', 'facture', 'plan', 'photo', 'banque', 'autre')),
   mime text,
   taille bigint,
   poste_id uuid references postes (id) on delete set null,
@@ -197,6 +197,34 @@ create table documents (
 alter table documents enable row level security;
 create policy foyer_tout on documents for all to authenticated using (est_du_foyer()) with check (est_du_foyer());
 grant select, insert, update, delete on documents to authenticated;
+
+-- Offres et simulations de prêt, pour les comparer. Les montants sont ceux du
+-- document de la banque ; l'application recalcule ce qui manque.
+create table prets (
+  id uuid primary key default gen_random_uuid(),
+  banque text not null,
+  libelle text,
+  statut text not null default 'simulation' check (statut in ('simulation', 'offre', 'retenu', 'refuse')),
+  date_doc date,
+  montant numeric(12, 2),
+  duree_mois int,
+  taux numeric(6, 3),
+  taeg numeric(6, 3),
+  mensualite numeric(12, 2),
+  interets numeric(12, 2),
+  assurance_mois numeric(12, 2),
+  assurance_total numeric(12, 2),
+  frais_dossier numeric(12, 2),
+  frais_garantie numeric(12, 2),
+  garantie text,
+  document_id uuid references documents (id) on delete set null,
+  notes text,
+  auteur text,
+  created_at timestamptz not null default now()
+);
+alter table prets enable row level security;
+create policy foyer_tout on prets for all to authenticated using (est_du_foyer()) with check (est_du_foyer());
+grant select, insert, update, delete on prets to authenticated;
 
 -- Liaison avec le Drive, lue seulement par la fonction « drive » (clé serveur) :
 -- aucune règle, aucun droit, donc invisible depuis l'application.

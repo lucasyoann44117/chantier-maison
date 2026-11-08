@@ -10,6 +10,7 @@ const TRI = {
   relances: ['date_relance', false],
   reglages: ['id', true],
   documents: ['created_at', false],
+  prets: ['created_at', true],
 };
 
 window.creerBase = function (cfg) {
@@ -109,6 +110,7 @@ function baseDemo() {
         for (const t of ['factures', 'documents']) d[t].forEach(x => { if (x.devis_id === id) x.devis_id = null; });
       }
       if (table === 'factures') d.documents.forEach(x => { if (x.facture_id === id) x.facture_id = null; });
+      if (table === 'documents') d.prets.forEach(x => { if (x.document_id === id) x.document_id = null; });
       if (table === 'taches') d.taches.forEach(x => { if (x.apres_id === id) x.apres_id = null; });
       if (table === 'postes') {
         d.relances = d.relances.filter(x => x.poste_id !== id);
