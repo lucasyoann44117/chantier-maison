@@ -587,8 +587,8 @@
     if (sansSource) parSource.push(['source non précisée', sansSource]);
     return `<p class="retour"><a href="#bilan">← Bilan</a></p>
       <header class="entete"><h1>Factures</h1><button class="btn" data-action="nouvelle-facture">Ajouter une facture</button></header>
-      <p class="resume">À payer : <strong>${euros(somme(aPayer.map(aRegler)))}</strong> · payé : ${euros(somme(D.factures.map(regle)))}${parSource.length ? ` (${parSource.map(([l, v]) => `${l} ${euros(v)}`).join(', ')})` : ''}</p>
       ${puces('factures', { a_payer: 'À payer', paye: 'Payées', toutes: 'Toutes' })}
+      <p class="resume">À payer : <strong>${euros(somme(aPayer.map(aRegler)))}</strong> · payé : ${euros(somme(D.factures.map(regle)))}${parSource.length ? ` (${parSource.map(([l, v]) => `${l} ${euros(v)}`).join(', ')})` : ''}</p>
       ${liste.length ? `<ul class="liste">${liste.map(ligneFacture).join('')}</ul>` : '<p class="vide">Aucune facture ici.</p>'}`;
   }
 
@@ -637,8 +637,8 @@
   function vueDocuments(sous) {
     const liste = D.documents.filter(x => filtres.documents === 'tous' || x.type === filtres.documents);
     return `<header class="entete"><h1>Documents</h1><button class="btn" data-action="nouveau-document">Ajouter un document</button></header>
-      ${etatDrive(sous)}
       ${puces('documents', { tous: 'Tous', devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', banque: 'Banque', autre: 'Autres' })}
+      ${etatDrive(sous)}
       ${liste.length ? listeDocuments(liste) : '<p class="vide">Aucun document ici.</p>'}`;
   }
 
@@ -901,10 +901,30 @@
   // Devis, factures, reste et financement s'ouvrent depuis le Bilan.
   const SOUS_BILAN = ['devis', 'factures', 'reste', 'financement'];
 
+  // Le titre, ses boutons et les filtres qui le suivent restent en haut de
+  // l'écran pendant le défilement, comme la barre d'une appli.
+  function epinglerEntete() {
+    const entete = $('#contenu > .entete');
+    if (!entete) return;
+    const tete = document.createElement('div');
+    tete.className = 'tete';
+    entete.before(tete);
+    tete.append(entete);
+    while (tete.nextElementSibling && tete.nextElementSibling.matches('.puces, .choix-planning')) tete.append(tete.nextElementSibling);
+    majTete();
+  }
+  // Ombre sous l'en-tête seulement quand le contenu passe dessous.
+  function majTete() {
+    const tete = $('#contenu > .tete');
+    if (tete) tete.classList.toggle('colle', tete.getBoundingClientRect().top <= parseFloat(getComputedStyle(tete).top) + 0.5 && window.scrollY > 0);
+  }
+  window.addEventListener('scroll', majTete, { passive: true });
+
   function afficher() {
     const [vue, id] = (location.hash.slice(1) || 'bilan').split('/');
     const courante = vue === 'poste' ? 'postes' : VUES[vue] ? vue : 'bilan';
     $('#contenu').innerHTML = vue === 'poste' ? vuePoste(id) : VUES[courante](id);
+    epinglerEntete();
     const menu = SOUS_BILAN.includes(courante) ? 'bilan' : courante;
     document.querySelectorAll('.barre nav a').forEach(a => a.classList.toggle('actif', a.dataset.vue === menu));
   }
