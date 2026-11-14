@@ -1,7 +1,7 @@
 // Garde l'application disponible hors connexion. Réseau d'abord, pour voir
 // tout de suite les nouvelles versions ; le cache sert seulement en secours.
 // Les données Supabase ne passent pas par ce cache.
-const CACHE = 'chantier-v16';
+const CACHE = 'chantier-v17';
 const FICHIERS = [
   './', 'index.html', 'styles.css', 'app.js', 'db.js', 'config.js',
   'manifest.webmanifest', 'icones/icone-180.png', 'icones/icone-192.png', 'icones/icone-512.png',
@@ -22,7 +22,9 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    // no-cache : le navigateur revalide auprès du serveur, une nouvelle version
+    // s'affiche donc dès la publication.
+    fetch(e.request, { cache: 'no-cache' })
       .then(rep => {
         const copie = rep.clone();
         caches.open(CACHE).then(c => c.put(e.request, copie));

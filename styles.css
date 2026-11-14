@@ -193,13 +193,15 @@ main > section, .bloc { display: flex; flex-direction: column; gap: 10px; }
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin: -12px -32px 0;
-  padding: 12px 32px;
+  /* Collé au haut de main dès le départ : rien ne bouge quand il s'épingle. */
+  margin: -32px -32px 0;
+  padding: 20px 32px 12px;
   background: color-mix(in srgb, var(--fond) 88%, transparent);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   transition: box-shadow .2s;
 }
+.tete .retour { margin: 0; }
 .tete.colle { box-shadow: 0 1px 0 var(--trait), 0 8px 18px -12px rgb(0 0 0 / .35); }.actions { display: flex; align-items: center; gap: 10px; }
 .retour { margin: 0 0 -14px; }
 .retour a { text-decoration: none; font-weight: 600; }
@@ -809,7 +811,8 @@ button, .barre nav a, .puce, .etat, .rang, .poignee, .e-rang { -webkit-user-sele
 .btn:active, .puce:active, .etat:active, .barre nav a:active { transform: scale(.95); }
 .ligne:active, .chiffre:active, .tache-carte:has(.t-titre:active) { transform: scale(.985); }
 /* Entrée des écrans et des fenêtres. */
-#contenu.entree { animation: entree .2s ease-out; }
+/* L'en-tête ne bouge pas au changement d'écran : seul le contenu apparaît. */
+#contenu.entree > :not(.tete) { animation: entree .2s ease-out; }
 @keyframes entree { from { opacity: 0; transform: translateY(8px); } }
 dialog[open] { animation: fenetre .22s cubic-bezier(.2,.8,.2,1); }
 dialog[open]::backdrop { animation: voile .22s ease-out; }
@@ -859,7 +862,7 @@ dialog[open]::backdrop { animation: voile .22s ease-out; }
   }
   h1 { font-size: 1.75rem; }
   /* Sous la bande de balisage du haut, elle aussi épinglée. */
-  .tete { top: calc(5px + env(safe-area-inset-top)); margin: -10px calc(-1 * max(16px, env(safe-area-inset-right))) 0 calc(-1 * max(16px, env(safe-area-inset-left))); padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); gap: 10px; }
+  .tete { top: calc(5px + env(safe-area-inset-top)); margin: -18px calc(-1 * max(16px, env(safe-area-inset-right))) 0 calc(-1 * max(16px, env(safe-area-inset-left))); padding: 14px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); gap: 10px; }
   /* Filtres sur une seule ligne qui défile de côté, pour garder de la place. */
   .tete .choix-planning, .tete > .puces { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 calc(-1 * max(16px, env(safe-area-inset-right))) 0 calc(-1 * max(16px, env(safe-area-inset-left))); padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
   .tete .choix-planning::-webkit-scrollbar, .tete > .puces::-webkit-scrollbar { display: none; }

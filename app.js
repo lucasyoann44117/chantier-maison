@@ -908,7 +908,9 @@
     if (!entete) return;
     const tete = document.createElement('div');
     tete.className = 'tete';
+    const retour = entete.previousElementSibling && entete.previousElementSibling.matches('.retour') ? entete.previousElementSibling : null;
     entete.before(tete);
+    if (retour) tete.append(retour);
     tete.append(entete);
     while (tete.nextElementSibling && tete.nextElementSibling.matches('.puces, .choix-planning')) tete.append(tete.nextElementSibling);
     majTete();
