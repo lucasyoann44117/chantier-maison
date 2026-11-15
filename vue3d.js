@@ -66,6 +66,37 @@ function ajouter(mesh, phase, ombre = true) {
 
 const piecesDeMur = [];
 
+// Crépi extérieur : blanc cassé (Street View de 2008 : même teinte que la porte de
+// garage blanche, à l'ombre) ; l'extension prend la même teinte. Grain fin en relief.
+function texteCrepi() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#808080';
+  g.fillRect(0, 0, 256, 256);
+  let graine = 3;
+  const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
+  for (let k = 0; k < 9000; k++) {
+    const n = 90 + Math.round(hasard() * 90);
+    g.fillStyle = `rgba(${n},${n},${n},0.5)`;
+    const r = 0.6 + hasard() * 1.6;
+    g.beginPath(); g.arc(hasard() * 256, hasard() * 256, r, 0, 6.3); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const grainCrepi = texteCrepi();
+const matCrepi = new THREE.MeshStandardMaterial({ color: '#ece8df', roughness: 0.95, bumpMap: grainCrepi, bumpScale: 1.2 });
+// UV d'une boîte à l'échelle réelle (une image = « echelle » mètres), sans rotation.
+function uvEchelle(geo, l, h, p, echelle) {
+  const uv = geo.attributes.uv, tailles = [[p, h], [p, h], [l, p], [l, p], [l, h], [l, h]];
+  for (let f = 0; f < 6; f++) for (let k = f * 4; k < f * 4 + 4; k++) {
+    uv.setXY(k, uv.getX(k) * tailles[f][0] / echelle, uv.getY(k) * tailles[f][1] / echelle);
+  }
+  uv.needsUpdate = true;
+}
+
 function construireMur(m) {
   const [ax, ay] = m.a, [bx, by] = m.b;
   const longueur = Math.hypot(bx - ax, by - ay);
@@ -74,10 +105,25 @@ function construireMur(m) {
   const ep = M(m.ep);
   const ouvertures = (m.ouvertures || []).slice().sort((a, b) => a.pos - b.pos);
 
+  // Face extérieure : celle dont le côté ne tombe dans aucune pièce (l'autre, si).
+  // La face +Z locale de la boîte regarde vers (uy, -ux) dans le plan.
+  const mx = (ax + bx) / 2, my = (ay + by) / 2, d = m.ep / 2 + 20;
+  const dansUnePiece = (x, y) => pieces.some(p => (!p.phase || !m.phase || p.phase === m.phase) && dans(p.poly, x, y));
+  const plus = dansUnePiece(mx + uy * d, my - ux * d), moins = dansUnePiece(mx - uy * d, my + ux * d);
+  const faceExterieure = plus === moins ? -1 : plus ? 5 : 4;
+
   // Un pavé du mur entre s et e (cm, le long du mur), de z0 à z1 (m).
   const pave = (s, e, z0, z1, materiau = matMur, bloque = true) => {
     if (e - s < 0.5 || z1 - z0 < 0.005) return;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(M(e - s), z1 - z0, materiau === matVitre ? 0.02 : ep), materiau);
+    const geo = new THREE.BoxGeometry(M(e - s), z1 - z0, materiau === matVitre ? 0.02 : ep);
+    let mat = materiau;
+    if (materiau === matMur && faceExterieure >= 0) {
+      // Crépi sur la seule face extérieure, grain à l'échelle réelle.
+      mat = [matMur, matMur, matMur, matMur, matMur, matMur];
+      mat[faceExterieure] = matCrepi;
+      uvEchelle(geo, M(e - s), z1 - z0, ep, 0.5);
+    }
+    const mesh = new THREE.Mesh(geo, mat);
     const milieu = (s + e) / 2;
     mesh.position.set(M(ax + ux * milieu), (z0 + z1) / 2, -M(ay + uy * milieu));
     mesh.rotation.y = angle;
@@ -681,7 +727,10 @@ function hauteurToit(x, y) {
   let h = Math.min(toit.plafond, toit.hSud + toit.pente * (yc - toit.ySud), toit.hNord + toit.pente * (toit.yNord - yc));
   // Avancée : son propre rampant, du mur bas du fond jusqu'au plafond plat.
   const l = toit.lucarne;
-  if (l && x >= l.x0 - 4 && x <= l.x1 + 4 && y <= l.yFond + 6) h = Math.max(h, Math.min(toit.plafond, l.hFond + toit.pente * (l.yFond - Math.min(y, l.yFond))));
+  const yPlafondNord = toit.yNord - (toit.plafond - toit.hNord) / toit.pente; // début du plafond plat côté nord
+  if (l && x >= l.x0 - 4 && x <= l.x1 + 4 && y <= l.yFond + 6 && y >= yPlafondNord) {
+    h = Math.max(h, Math.min(toit.plafond, l.hFond + toit.pente * (l.yFond - Math.min(y, l.yFond))));
+  }
   return Math.max(h, 0);
 }
 function ajouterEtage(mesh, extra = {}) {
@@ -725,6 +774,7 @@ function murEtage(m) {
 }
 // Surface plane du toit à partir de points du plan (cm) et de leur hauteur (cm).
 const matToit = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 1, side: THREE.DoubleSide });
+const matArdoise = new THREE.MeshStandardMaterial({ color: '#5d636b', roughness: 0.7, side: THREE.DoubleSide });
 const matFenetreToit = new THREE.MeshStandardMaterial({ color: '#bcd6ea', emissive: '#6f8fa8', roughness: 0.2, side: THREE.DoubleSide });
 function surfaceToit(points, materiau = matToit, decalage = 0) {
   const geo = new THREE.BufferGeometry().setFromPoints(points.map(([x, y, h]) => new THREE.Vector3(M(x), M(h) - decalage, -M(y))));
@@ -733,6 +783,13 @@ function surfaceToit(points, materiau = matToit, decalage = 0) {
   const mesh = new THREE.Mesh(geo, materiau);
   ajouter(ajouterEtage(mesh, { toit: true }), undefined, true);
   plafonds.push(mesh);
+  // Couverture en ardoise vue de dehors : même surface, 15 cm plus haut.
+  if (materiau === matToit) {
+    const dessus = new THREE.Mesh(geo, matArdoise);
+    dessus.position.y = 0.15;
+    ajouter(ajouterEtage(dessus, { toit: true }), undefined, true);
+    plafonds.push(dessus);
+  }
   return mesh;
 }
 if (etage) {
