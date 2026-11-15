@@ -514,6 +514,56 @@ const etiquettes = pieces.map(p => {
   return { el, p, pos: new THREE.Vector3(M(sx / p.poly.length), 0.1, -M(sy / p.poly.length)) };
 });
 
+// ---------- Cotes (bouton Cotes, vue d'ensemble) ----------
+// Longueur intérieure de chaque côté de pièce (les pièces sont tracées au nu
+// intérieur des murs) et largeur de chaque ouverture, avec un trait de cote.
+const cotes = [];
+const matCote = new THREE.LineBasicMaterial({ color: '#1f6fd1' });
+let cotesVisibles = false;
+const enMetres = cm => `${(cm / 100).toFixed(2).replace('.', ',')} m`;
+function coter([ax, ay], [bx, by], hauteur, texte, phase, classe = 'cote') {
+  const lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
+  const t = 7; // demi-longueur des petits traits d'extrémité (cm)
+  const pts = [[ax, ay], [bx, by], [ax - uy * t, ay + ux * t], [ax + uy * t, ay - ux * t], [bx - uy * t, by + ux * t], [bx + uy * t, by - ux * t]]
+    .map(([x, y]) => new THREE.Vector3(M(x), hauteur, -M(y)));
+  const ligne = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), matCote);
+  ligne.visible = false;
+  scene.add(ligne);
+  const el = document.createElement('span');
+  el.className = classe;
+  el.textContent = texte;
+  el.style.display = 'none';
+  conteneurEtiquettes.append(el);
+  cotes.push({ el, ligne, phase, pos: new THREE.Vector3(M((ax + bx) / 2), hauteur, -M((ay + by) / 2)) });
+}
+for (const p of pieces) {
+  const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  p.poly.forEach((a, i) => {
+    const b = p.poly[(i + 1) % p.poly.length];
+    const lg = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (lg < 45) return; // les petits retours encombreraient le plan
+    let nx = -(b[1] - a[1]) / lg, ny = (b[0] - a[0]) / lg;
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    if (nx * (cx - mx) + ny * (cy - my) < 0) { nx = -nx; ny = -ny; } // vers l'intérieur
+    const d = 22;
+    coter([a[0] + nx * d, a[1] + ny * d], [b[0] + nx * d, b[1] + ny * d], 0.03, enMetres(lg), p.phase);
+  });
+}
+for (const m of murs) for (const o of m.ouvertures || []) {
+  const [ax, ay] = m.a, [bx, by] = m.b, lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
+  coter([ax + ux * o.pos, ay + uy * o.pos], [ax + ux * (o.pos + o.largeur), ay + uy * (o.pos + o.largeur)],
+    H + 0.03, `↔ ${enMetres(o.largeur)}`, m.phase, 'cote ouverture');
+}
+function reglerCotes() {
+  for (const c of cotes) c.ligne.visible = cotesVisibles && mode === 'ensemble' && visible(c.phase);
+  document.getElementById('cotes')?.setAttribute('aria-pressed', String(cotesVisibles));
+}
+document.getElementById('cotes')?.addEventListener('click', () => {
+  cotesVisibles = !cotesVisibles;
+  reglerCotes();
+});
+
 // ---------- Modes ----------
 
 let phase = 'apres';
@@ -525,6 +575,7 @@ function visible(ph) { return !ph || ph === phase; }
 function appliquerPhase() {
   for (const e of elements) e.visible = visible(e.userData.phase) && (mode === 'visite' || !plafonds.includes(e));
   reglerLampes(mode === 'visite');
+  reglerCotes();
 }
 
 const camEnsemble = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
@@ -688,12 +739,29 @@ function boucle(t) {
     orbite.update();
     lumiereInterieure.intensity = 0;
     cam = camEnsemble;
+    // Cotes : une étiquette qui en chevaucherait une autre (ou le nom d'une pièce) est
+    // masquée ; en zoomant, la place se libère et elle réapparaît.
+    const placees = [];
     for (const e of etiquettes) {
       const montre = visible(e.p.phase);
       v.copy(e.pos).project(cam);
       e.el.style.display = montre && v.z < 1 ? '' : 'none';
-      e.el.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
-      e.el.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+      const x = (v.x * 0.5 + 0.5) * innerWidth, y = (-v.y * 0.5 + 0.5) * innerHeight;
+      e.el.style.left = `${x}px`;
+      e.el.style.top = `${y}px`;
+      if (montre) placees.push([x, y, e.p.nom.length * 3.8 + 8]);
+    }
+    for (const c of cotes) {
+      if (!cotesVisibles || !visible(c.phase)) { c.el.style.display = 'none'; continue; }
+      v.copy(c.pos).project(cam);
+      const x = (v.x * 0.5 + 0.5) * innerWidth, y = (-v.y * 0.5 + 0.5) * innerHeight;
+      const dl = c.el.textContent.length * 3.3 + 5, dh = 8;
+      const libre = v.z < 1 && !placees.some(([px, py, pl]) => Math.abs(px - x) < dl + pl && Math.abs(py - y) < dh * 2);
+      c.el.style.display = libre ? '' : 'none';
+      if (!libre) continue;
+      placees.push([x, y, dl]);
+      c.el.style.left = `${x}px`;
+      c.el.style.top = `${y}px`;
     }
   }
   rendu.render(scene, cam);

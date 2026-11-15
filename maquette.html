@@ -29,6 +29,8 @@
     .visite.tactile .joystick { display: block; }
     .etiquettes { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
     .etiquettes span { position: absolute; transform: translate(-50%, -50%); font-size: 12px; font-weight: 700; color: #1e2429; background: rgb(255 255 255 / .82); padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
+    .etiquettes span.cote { font-size: 10.5px; font-weight: 600; color: #0d4f9c; background: rgb(232 242 255 / .9); padding: 1px 4px; border-radius: 4px; }
+    .etiquettes span.ouverture { color: #8a4b00; background: rgb(255 240 220 / .92); }
     .visite .etiquettes { display: none; }
     .etat { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--doux); }
     .etat a { color: var(--jaune); }
@@ -48,6 +50,7 @@
     </div>
     <div class="groupe" role="group" aria-label="Éclairage">
       <button id="lumiere" aria-pressed="true">💡 Lumière</button>
+      <button id="cotes" aria-pressed="false">📏 Cotes</button>
     </div>
     <label class="reglage">Yeux <input type="range" id="yeux" min="140" max="195" value="170"><b id="yeux-val">1,70 m</b></label>
   </div>
