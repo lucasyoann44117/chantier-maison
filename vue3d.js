@@ -890,6 +890,37 @@ const MODELES = {
     piece3d(g, 38, 38, 18, 0, 59, -22, 'porcelaine');
     piece3d(g, 38, 2.5, 48, 0, 41, 8, o.couleur || 'porcelaine');
   } },
+  // Vélo de route : deux roues, cadre en losange, selle, cintre (longueur sur X).
+  velo: { construire(g, o) {
+    const r = 34, e = o.l / 2 - r, mat = o.mat || '#2b2d31';
+    for (const x of [-e, e]) {
+      const roue = new THREE.Mesh(new THREE.TorusGeometry(M(r), M(1.5), 8, 32), matMeuble('noir'));
+      roue.position.set(M(x), M(r), 0);
+      g.add(roue);
+    }
+    const tube = (x1, y1, x2, y2) => {
+      const lg = Math.hypot(x2 - x1, y2 - y1), t = piece3d(g, lg, 3, 3, (x1 + x2) / 2, (y1 + y2) / 2, 0, mat);
+      t.rotation.z = Math.atan2(y2 - y1, x2 - x1);
+    };
+    const pedalier = [-5, 30], selle = [-e + 25, 75], douille = [e - 12, 72];
+    tube(-e, r, ...pedalier); tube(-e, r, ...selle); tube(...pedalier, ...selle);
+    tube(...pedalier, ...douille); tube(...selle, ...douille); tube(...douille, e, r);
+    piece3d(g, 25, 4, 12, selle[0] - 3, 80, 0, 'noir');
+    piece3d(g, 4, 3, 42, douille[0] + 4, 84, 0, 'noir');
+  } },
+  // Coupes (trophées) dorées alignées, posées sur un meuble (z).
+  coupes: { construire(g, o) {
+    const or = new THREE.MeshStandardMaterial({ color: '#d4a93a', roughness: 0.3, metalness: 0.8 });
+    const n = Math.max(1, Math.floor(o.l / 14));
+    for (let k = 0; k < n; k++) {
+      const h = o.h * (0.7 + 0.3 * ((k * 7) % 3) / 2), x = -o.l / 2 + 7 + k * (o.l - 14) / Math.max(1, n - 1);
+      for (const [rh, r1, r2, y] of [[0.15, 4, 4, 0], [0.45, 1, 1, 0.15], [0.4, 6, 2, 0.6]]) {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(M(r1), M(r2), M(h * rh), 16), or);
+        m.position.set(M(x), M(h * y + h * rh / 2), 0);
+        g.add(m);
+      }
+    }
+  } },
   // Suspension boule (plumes, papier) : sphère accrochée au plafond (z = bas de la boule).
   suspension: { construire(g, o) {
     const b = new THREE.Mesh(new THREE.SphereGeometry(M(o.l) / 2, 24, 16), new THREE.MeshStandardMaterial({ color: '#fbf8f2', emissive: '#4a4236', roughness: 1 }));
