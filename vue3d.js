@@ -538,13 +538,16 @@ for (const o of objets) {
   else if (o.type === 'meuble') continue; // construits plus bas (mobilier déplaçable)
   else if (o.type === 'spot') {
     // Spot encastré sous un meuble haut : petit disque et lumière douce vers le bas.
-    const lampe = new THREE.PointLight('#fff0dc', 0, 2.5, 2);
-    lampe.position.set(M(o.x), M(o.z) - 0.03, -M(o.y));
-    Object.assign(lampe.userData, { phase: o.phase, puissance: 0.8 });
-    scene.add(lampe);
+    // Cône vers le bas : sans ombres, une lumière ponctuelle éclairerait aussi l'intérieur
+    // de la niche à travers la tablette.
+    const lampe = new THREE.SpotLight('#fff0dc', 0, 2.5, 1.0, 0.7, 2);
+    lampe.position.set(M(o.x), M(o.z) - 0.01, -M(o.y));
+    lampe.target.position.set(M(o.x), 0, -M(o.y));
+    Object.assign(lampe.userData, { phase: o.phase, puissance: 2.5 });
+    scene.add(lampe, lampe.target);
     elements.push(lampe);
     lampes.push(lampe);
-    const spot = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.006, 16), matSpot);
+    const spot = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.008, 16), matSpot);
     spot.position.set(M(o.x), M(o.z) - 0.003, -M(o.y));
     ajouter(spot, o.phase, false);
   } else {
@@ -831,6 +834,7 @@ const MODELES = {
     const { l, p } = o, h = o.h || 42, m = o.mat || 'boisClair';
     piece3d(g, l, 4, p, 0, h - 2, 0, m);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 5, h - 4, 5, sx * (l / 2 - 5), (h - 4) / 2, sz * (p / 2 - 5), m);
+    if (o.tablette) piece3d(g, l - 6, 2, p - 6, 0, 12, 0, m); // tablette basse
   } },
   // Poêle à granulés noir, vitre devant, conduit jusqu'au plafond (conduit = longueur).
   poele: { construire(g, o) {
@@ -898,7 +902,17 @@ function construireMeuble(o) {
   const g = new THREE.Group();
   MODELES[o.modele].construire(g, o);
   g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
-  g.userData = { phase: o.phase, meuble: o, x: pos?.x ?? o.x, y: pos?.y ?? o.y, angle: pos?.angle ?? o.angle ?? 0 };
+  // Une place par phase : la place « avant » (positions déjà enregistrées sous l'id) et
+  // la place « après » (enregistrée sous id@apres ; par défaut l'option apres=x,y,angle
+  // de l'ordre, sinon la même place qu'avant). Un meuble de phase 'avant' n'existe qu'avant.
+  const defauts = { avant: { x: o.x, y: o.y, angle: o.angle ?? 0 } };
+  const [ax, ay, aa] = String(o.apres ?? '').split(',').map(Number);
+  defauts.apres = o.apres ? { x: ax, y: ay, angle: aa || 0 } : { ...defauts.avant };
+  const places = {
+    avant: positionsMeubles[o.id] ?? defauts.avant,
+    apres: positionsMeubles[o.id + '@apres'] ?? defauts.apres,
+  };
+  g.userData = { phase: o.phase, meuble: o, defauts, places, ...places.apres };
   if (o.niveau) g.userData.niveau = 1;
   // Emprise au sol mesurée sur le meuble construit (méridienne, retour de bureau compris).
   const boite = new THREE.Box3().setFromObject(g), c = boite.getCenter(new THREE.Vector3());
@@ -1371,6 +1385,8 @@ function visible(ph) { return !ph || ph === phase; }
 let voirEtage = false;
 const niveauMontre = niv => mode === 'visite' || (niv === 1) === voirEtage || (!niv && !voirEtage);
 function appliquerPhase() {
+  // Chaque meuble reprend sa place de la phase affichée.
+  for (const g of meubles) { Object.assign(g.userData, g.userData.places[phase]); placerMeuble(g); }
   for (const e of elements) {
     e.visible = visible(e.userData.phase) && (mode === 'visite' || !plafonds.includes(e)) &&
       (e.userData.niveau !== 1 || mode === 'visite' || voirEtage) &&
@@ -1391,7 +1407,6 @@ orbite.maxDistance = 45;
 
 const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 120);
 const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };
-
 // ---------- Déplacer les meubles (bouton Meubles, vue d'ensemble) ----------
 // Attraper un meuble et le faire glisser au sol ; une barre permet de le tourner.
 // Positions enregistrées : window.MAISON_SAUVER_MOBILIER (appli) ou le navigateur.
@@ -1416,11 +1431,29 @@ function choisirMeuble(g) {
   barreMeuble.style.display = g ? 'flex' : 'none';
   if (g) barreMeuble.querySelector('#nom-meuble').textContent = g.userData.meuble.nom;
 }
+// Meubles qui suivent celui-ci (option suit=id : les chaises suivent la table).
+const suiveurs = g => meubles.filter(f => f.userData.meuble.suit === g.userData.meuble.id && visible(f.userData.phase));
+// Déplace et tourne un meuble ; ceux qui le suivent gardent leur place autour de lui.
+function bougerMeuble(g, x, y, angle) {
+  const u = g.userData, da = (angle - u.angle) * Math.PI / 180, c = Math.cos(da), s = Math.sin(da);
+  for (const f of suiveurs(g)) {
+    const v = f.userData, rx = v.x - u.x, ry = v.y - u.y;
+    Object.assign(v, { x: x + rx * c - ry * s, y: y + rx * s + ry * c, angle: ((v.angle + angle - u.angle) % 360 + 360) % 360 });
+    v.places[phase] = { x: v.x, y: v.y, angle: v.angle };
+    placerMeuble(f);
+  }
+  Object.assign(u, { x, y, angle });
+  u.places[phase] = { x, y, angle };
+  placerMeuble(g);
+}
 function sauverMeubles() {
   clearTimeout(minuterieSauvegarde);
   minuterieSauvegarde = setTimeout(async () => {
-    const pos = {};
-    for (const g of meubles) pos[g.userData.meuble.id] = { x: Math.round(g.userData.x), y: Math.round(g.userData.y), angle: g.userData.angle };
+    const pos = {}, arrondi = p => ({ x: Math.round(p.x), y: Math.round(p.y), angle: p.angle });
+    for (const g of meubles) {
+      pos[g.userData.meuble.id] = arrondi(g.userData.places.avant);
+      pos[g.userData.meuble.id + '@apres'] = arrondi(g.userData.places.apres);
+    }
     try {
       if (window.MAISON_SAUVER_MOBILIER) await window.MAISON_SAUVER_MOBILIER(pos);
       else localStorage.setItem('maquette-mobilier', JSON.stringify(pos));
@@ -1432,9 +1465,14 @@ barreMeuble.addEventListener('click', e => {
   if (!v || !meubleChoisi) return;
   if (v === 'ok') { choisirMeuble(null); return; }
   const u = meubleChoisi.userData;
-  if (v === 'origine') Object.assign(u, { x: u.meuble.x, y: u.meuble.y, angle: u.meuble.angle ?? 0 });
-  else u.angle = ((u.angle + Number(v)) % 360 + 360) % 360;
-  placerMeuble(meubleChoisi);
+  if (v === 'origine') {
+    // Remet le meuble et ceux qui le suivent à leur place d'origine pour cette phase.
+    for (const g of [meubleChoisi, ...suiveurs(meubleChoisi)]) {
+      Object.assign(g.userData, g.userData.defauts[phase]);
+      g.userData.places[phase] = { ...g.userData.defauts[phase] };
+      placerMeuble(g);
+    }
+  } else bougerMeuble(meubleChoisi, u.x, u.y, ((u.angle + Number(v)) % 360 + 360) % 360);
   cadre.setFromObject(meubleChoisi);
   sauverMeubles();
 });
@@ -1468,9 +1506,7 @@ rendu.domElement.addEventListener('pointermove', e => {
   if (!glisse || e.pointerId !== glisse.id) return;
   versSol(e);
   if (!rayonMeuble.ray.intersectPlane(solPlan, surSol)) return;
-  meubleChoisi.userData.x = (surSol.x + glisse.dx) * 100;
-  meubleChoisi.userData.y = -(surSol.z + glisse.dz) * 100;
-  placerMeuble(meubleChoisi);
+  bougerMeuble(meubleChoisi, (surSol.x + glisse.dx) * 100, -(surSol.z + glisse.dz) * 100, meubleChoisi.userData.angle);
   cadre.setFromObject(meubleChoisi);
   e.stopImmediatePropagation();
 }, true);
