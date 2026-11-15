@@ -211,7 +211,9 @@
       : enLice.length ? `${enLice.length} offre${enLice.length > 1 ? 's' : ''} · la moins chère : ${esc(nomPret(enLice[0].p))}` : 'Aucune offre en lice';
     return `<ul class="liste"><li><a class="ligne" href="#financement">
       <span class="corps"><strong>Financement</strong><small>${detail}</small></span>
-      ${enLice.length ? `<span class="montant">${euros(enLice[0].c.cout)}</span>` : ''}</a></li></ul>`;
+      ${enLice.length ? `<span class="montant">${euros(enLice[0].c.cout)}</span>` : ''}</a></li>
+      <li><a class="ligne" href="maquette.html">
+      <span class="corps"><strong>Maquette 3D</strong><small>Visiter la maison avant et après travaux</small></span></a></li></ul>`;
   }
 
   // Graduation « ronde » de l'axe : 1, 2, 2,5 ou 5 fois une puissance de 10.

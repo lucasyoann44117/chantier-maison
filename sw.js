@@ -1,9 +1,9 @@
 // Garde l'application disponible hors connexion. Réseau d'abord, pour voir
 // tout de suite les nouvelles versions ; le cache sert seulement en secours.
 // Les données Supabase ne passent pas par ce cache.
-const CACHE = 'chantier-v17';
+const CACHE = 'chantier-v18';
 const FICHIERS = [
-  './', 'index.html', 'styles.css', 'app.js', 'db.js', 'config.js',
+  './', 'index.html', 'styles.css', 'app.js', 'db.js', 'config.js', 'maquette.html', 'vue3d.js',
   'manifest.webmanifest', 'icones/icone-180.png', 'icones/icone-192.png', 'icones/icone-512.png',
   'icones/plan-clair.png', 'icones/plan-sombre.png',
 ];

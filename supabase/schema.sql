@@ -224,6 +224,17 @@ create table prets (
 );
 alter table prets enable row level security;
 create policy foyer_tout on prets for all to authenticated using (est_du_foyer()) with check (est_du_foyer());
+
+-- Maquette 3D de la maison (murs, ouvertures, pièces, meubles), lue par
+-- maquette.html. Privée : le dépôt public ne contient que le visualiseur.
+create table maquette (
+  id text primary key,
+  donnees jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table maquette enable row level security;
+create policy foyer_tout on maquette for all to authenticated using (est_du_foyer()) with check (est_du_foyer());
+grant select, insert, update, delete on maquette to authenticated;
 grant select, insert, update, delete on prets to authenticated;
 
 -- Liaison avec le Drive, lue seulement par la fonction « drive » (clé serveur) :
