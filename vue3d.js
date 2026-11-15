@@ -279,6 +279,7 @@ for (const p of pieces) {
 
 for (const o of objets) {
   if (o.type === 'escalier') escalier(o);
+  else if (o.type === 'tabouret') tabouret(o);
   else {
     const h = M(o.h);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(M(o.l), h, M(o.p)), new THREE.MeshStandardMaterial({ color: o.couleur, roughness: 0.7 }));
@@ -289,6 +290,41 @@ for (const o of objets) {
     ajouter(mesh, o.phase);
     if (!o.z) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(o.l) / 2, he: M(o.p) / 2, phase: o.phase });
   }
+}
+
+// Tabouret de bar : assise ronde rembourrée, petit dossier, 4 pieds fins et repose-pieds.
+// x, y : centre (cm) ; assise : hauteur d'assise ; dos : côté du dossier (angle en degrés,
+// 0 = vers l'est, 90 = vers le nord, 180 = vers l'ouest).
+function tabouret(o) {
+  const groupe = new THREE.Group();
+  const matAssise = new THREE.MeshStandardMaterial({ color: o.couleur || '#e6e1d8', roughness: 0.9 });
+  const matPied = new THREE.MeshStandardMaterial({ color: o.pieds || '#1e1e1e', roughness: 0.5, metalness: 0.3 });
+  const hA = M(o.assise || 65), r = M(o.diametre || 42) / 2;
+  const assise = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.95, 0.07, 28), matAssise);
+  assise.position.y = hA - 0.035;
+  const dossier = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.2, 28, 1, true, -Math.PI / 2 - 0.9, 1.8), matAssise);
+  dossier.material = matAssise.clone();
+  dossier.material.side = THREE.DoubleSide;
+  dossier.position.y = hA + 0.1;
+  groupe.add(assise, dossier);
+  for (const [dx, dz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const pied = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, hA - 0.07, 8), matPied);
+    pied.position.set(dx * r * 0.62, (hA - 0.07) / 2, dz * r * 0.62);
+    pied.rotation.set(dz * 0.06, 0, -dx * 0.06);
+    groupe.add(pied);
+  }
+  const repose = new THREE.Mesh(new THREE.TorusGeometry(r * 0.7, 0.01, 6, 24), matPied);
+  repose.rotation.x = Math.PI / 2;
+  repose.position.y = 0.25;
+  groupe.add(repose);
+  groupe.position.set(M(o.x), 0, -M(o.y));
+  // Le dossier est dessiné côté -X local : on tourne le tabouret pour le mettre du côté voulu.
+  groupe.rotation.y = ((o.dos ?? 180) - 180) * Math.PI / 180;
+  groupe.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  groupe.userData.phase = o.phase;
+  scene.add(groupe);
+  elements.push(groupe);
+  obstacles.push({ cx: M(o.x), cz: -M(o.y), angle: 0, hl: r, he: r, phase: o.phase });
 }
 
 // Escalier à quart tournant double (demi-tour à gauche), marches ouvertes,
