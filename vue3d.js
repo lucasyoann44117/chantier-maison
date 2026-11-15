@@ -216,7 +216,38 @@ const MOTIFS = {
   romaCelio: { cases: 40, px: 32, centre: false, relief: 1.6, ecart: 14, largeurJoint: 1, travertin: true,
     formats: [[1, 1, 1], [2, 1, 1], [1, 2, 1], [2, 2, 2], [3, 2, 2], [2, 3, 2]],
     couleur: [194, 182, 164], joint: '#d3ccc0', mouchetis: 5 },
+  // Lino imitation carreaux de ciment (buanderie) : carreaux de 20 cm imprimés en noir,
+  // gris et blanc cassé ; chaque carreau tourné d'un quart de tour forme une rosace sur
+  // 2 × 2 carreaux. Surface lisse : joints seulement imprimés, pas d'usure.
+  cimentLino: { cases: 4, px: 128, rects: Array.from({ length: 16 }, (_, k) => [k % 4, Math.floor(k / 4), 1, 1]),
+    ciment: true, usure: false, relief: 0.15, ecart: 0, largeurJoint: 1, mouchetis: 0,
+    couleur: [238, 235, 228], joint: '#c9c5bd', encre: '#2e343b', gris: '#8f969c' },
 };
+
+// Motif d'un carreau de ciment dans le carré (x, y, s), tourné de rot quarts de tour :
+// quart de cercle sombre dans un coin, pétale gris vers le centre, losange au centre.
+function dessinCiment(g, m, x, y, s, rot) {
+  g.save();
+  g.translate(x + s / 2, y + s / 2);
+  g.rotate(rot * Math.PI / 2);
+  g.translate(-s / 2, -s / 2);
+  g.fillStyle = m.encre;
+  g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, s * 0.5, 0, Math.PI / 2); g.closePath(); g.fill();
+  g.fillStyle = `rgb(${m.couleur.join(',')})`;
+  g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, s * 0.32, 0, Math.PI / 2); g.closePath(); g.fill();
+  g.fillStyle = m.gris;
+  g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, s * 0.18, 0, Math.PI / 2); g.closePath(); g.fill();
+  // Pétale en diagonale vers le coin opposé (centre de la rosace voisine).
+  g.fillStyle = m.gris;
+  g.beginPath(); g.ellipse(s * 0.72, s * 0.72, s * 0.2, s * 0.08, Math.PI / 4, 0, 2 * Math.PI); g.fill();
+  g.fillStyle = m.encre;
+  g.beginPath(); g.moveTo(s, s - s * 0.16); g.lineTo(s - s * 0.16, s); g.lineTo(s, s); g.closePath(); g.fill();
+  // Filets sur les bords.
+  g.strokeStyle = m.encre;
+  g.lineWidth = Math.max(1, s * 0.02);
+  g.strokeRect(s * 0.04, s * 0.04, s * 0.92, s * 0.92);
+  g.restore();
+}
 
 // Remplit la grille au hasard : à chaque case libre, un format tiré au sort
 // (selon son poids) parmi ceux qui tiennent sans chevaucher.
@@ -266,8 +297,9 @@ function texteCarrelage(nom) {
       gr.fillStyle = `rgb(${n}, ${n}, ${n})`;
       gr.fillRect(x + k, y + k, w - 2 * k, hh - 2 * k);
     }
+    if (m.ciment) dessinCiment(g, m, x, y, w, (i % 2) + 2 * (j % 2) === 0 ? 0 : (i % 2) && !(j % 2) ? 1 : (i % 2) && (j % 2) ? 2 : 3);
     // Usure : taches plus claires ou foncées, et creux dans le relief.
-    if (m.relief) for (let k = 0; k < 3 * l * h; k++) {
+    if (m.relief && m.usure !== false) for (let k = 0; k < 3 * l * h; k++) {
       const rx = x + bord + hasard() * (w - 2 * bord), ry = y + bord + hasard() * (hh - 2 * bord), rr = px * (0.08 + hasard() * 0.25);
       // Taches floues (dégradé radial) pour éviter les ronds nets.
       const tache = (ctx, rgb, a) => {
