@@ -53,6 +53,7 @@
       <button id="cotes" aria-pressed="false">📏 Cotes</button>
       <button id="etage" aria-pressed="false">🪜 Étage</button>
       <button id="toit" aria-pressed="false">🏠 Toit</button>
+      <button id="meubles" aria-pressed="false">🪑 Meubles</button>
     </div>
     <label class="reglage">Yeux <input type="range" id="yeux" min="140" max="195" value="170"><b id="yeux-val">1,70 m</b></label>
   </div>
@@ -84,6 +85,14 @@
       if (error) throw new Error(error.message);
       if (!data) throw new Error('Aucune maquette enregistrée pour le moment.');
       window.MAISON = data.donnees;
+      // Positions des meubles déplacés, partagées par le foyer (ligne « mobilier »).
+      const { data: mobilier } = await sb.from('maquette').select('donnees').eq('id', 'mobilier').maybeSingle();
+      window.MAISON_MOBILIER = mobilier?.donnees || null;
+      window.MAISON_SAUVER_MOBILIER = async positions => {
+        const { error: erreur } = await sb.from('maquette')
+          .upsert({ id: 'mobilier', donnees: positions, updated_at: new Date().toISOString() });
+        if (erreur) throw new Error(erreur.message);
+      };
       await import('./vue3d.js');
       etat.remove();
     } catch (e) {

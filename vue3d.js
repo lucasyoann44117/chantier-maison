@@ -535,6 +535,7 @@ document.getElementById('lumiere')?.addEventListener('click', () => {
 for (const o of objets) {
   if (o.type === 'escalier') escalier(o);
   else if (o.type === 'tabouret') tabouret(o);
+  else if (o.type === 'meuble') continue; // construits plus bas (mobilier déplaçable)
   else {
     const h = M(o.h);
     const mat = o.matiere === 'chene'
@@ -606,6 +607,113 @@ function uvBois(geo, l, h, p) {
 // Tabouret de bar : assise ronde rembourrée, petit dossier, 4 pieds fins et repose-pieds.
 // x, y : centre (cm) ; assise : hauteur d'assise ; dos : côté du dossier (angle en degrés,
 // 0 = vers l'est, 90 = vers le nord, 180 = vers l'ouest).
+// ---------- Mobilier déplaçable ----------
+// Meubles modélisés d'après les photos (table, chaises, vaisselier, meuble bas).
+// x, y : centre (cm) ; angle (degrés) : 0 = façade vers le sud (−y), -90 = vers l'ouest,
+// 90 = vers l'est, 180 = vers le nord. Repère du modèle : largeur sur X, profondeur
+// sur Z, façade (ou devant de l'assise) côté +Z. Les positions déplacées par le foyer
+// sont enregistrées (Supabase dans l'appli, navigateur sinon) et remplacent celles-ci.
+const meubles = [];
+let positionsMeubles = {};
+try { positionsMeubles = window.MAISON_MOBILIER || JSON.parse(localStorage.getItem('maquette-mobilier') || '{}'); } catch { positionsMeubles = {}; }
+const matsMeuble = {};
+function matMeuble(nom) {
+  if (matsMeuble[nom]) return matsMeuble[nom];
+  const bois = (couleur) => new THREE.MeshStandardMaterial({ color: couleur, map: veinage(), roughness: 0.6 });
+  const defs = {
+    chene: () => bois('#c99a63'), cheneFonce: () => bois('#8f6a47'), teck: () => bois('#c9904f'), lattes: () => bois('#7a5536'),
+    blanc: () => new THREE.MeshStandardMaterial({ color: '#f3f1ea', roughness: 0.55 }),
+    metalNoir: () => new THREE.MeshStandardMaterial({ color: '#1e1f21', roughness: 0.45, metalness: 0.4 }),
+    metalBlanc: () => new THREE.MeshStandardMaterial({ color: '#f1f1ee', roughness: 0.4, metalness: 0.2 }),
+    ceramique: () => new THREE.MeshStandardMaterial({ color: '#6c6a67', roughness: 0.5, bumpMap: grainCrepi, bumpScale: 0.4 }),
+    vitre: () => new THREE.MeshStandardMaterial({ color: '#d7e3ea', transparent: true, opacity: 0.35, roughness: 0.1 }),
+    joint: () => new THREE.MeshStandardMaterial({ color: '#b9b4aa', roughness: 0.8 }),
+    poignee: () => new THREE.MeshStandardMaterial({ color: '#8a6a3a', roughness: 0.4, metalness: 0.6 }),
+  };
+  return (matsMeuble[nom] = defs[nom]());
+}
+// Pavé (cm) centré en (x, y, z) dans le repère du meuble, y = hauteur du centre.
+function piece3d(g, l, h, p, x, y, z, mat, rx = 0, rz = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(M(l), M(h), M(p)), matMeuble(mat));
+  m.position.set(M(x), M(y), M(z));
+  m.rotation.set(rx, 0, rz);
+  g.add(m);
+  return m;
+}
+const MODELES = {
+  // Table à rallonge : plateau effet céramique gris 200 × 95, pieds en métal noir en biais.
+  table: { l: 95, p: 200, construire(g) {
+    piece3d(g, 95, 1.8, 200, 0, 74, 0, 'ceramique');
+    piece3d(g, 85, 6, 180, 0, 70, 0, 'metalNoir');
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      piece3d(g, 2, 74, 8, sx * 36, 37, sz * 78, 'metalNoir', sz * 0.16, -sx * 0.06);
+    }
+  } },
+  // Chaise en chêne massif : assise 44 × 43 à 46 cm, dossier plein.
+  chaise: { l: 44, p: 46, construire(g, o) {
+    const b = o.teinte || 'chene';
+    piece3d(g, 44, 4, 43, 0, 45, 1, b);
+    for (const sx of [-1, 1]) {
+      piece3d(g, 4, 45, 4, sx * 19, 22.5, 19, b);            // pieds avant
+      piece3d(g, 4, 88, 4, sx * 19, 44, -20, b, -0.06);      // montants arrière
+    }
+    piece3d(g, 42, 20, 2.5, 0, 76, -21, b, -0.08);           // dossier
+  } },
+  // Chaise pliante de bistrot : armature blanche, lattes de bois.
+  chaisePliante: { l: 42, p: 46, construire(g) {
+    for (let k = 0; k < 4; k++) piece3d(g, 38, 1.5, 8, 0, 45, -14 + k * 9.5, 'lattes');
+    for (const sx of [-1, 1]) {
+      piece3d(g, 2, 50, 2, sx * 19, 23, 6, 'metalBlanc', -0.45);
+      piece3d(g, 2, 88, 2, sx * 19, 44, -6, 'metalBlanc', 0.3);
+    }
+    for (const y of [70, 82]) piece3d(g, 36, 6, 1.5, 0, y, -14, 'lattes', 0.3);
+  } },
+  // Vaisselier blanc : buffet bas (3 portes, 3 tiroirs) et haut vitré (3 portes coulissantes).
+  vaisselier: { l: 152, p: 50, construire(g) {
+    piece3d(g, 150, 86, 48, 0, 47, 0, 'blanc');
+    piece3d(g, 154, 4, 52, 0, 92, 0, 'blanc');
+    piece3d(g, 150, 4, 46, 0, 2, 0, 'blanc');
+    for (const x of [-25, 25]) piece3d(g, 0.6, 52, 0.4, x, 30, 24.2, 'joint');
+    piece3d(g, 150, 0.6, 0.4, 0, 60, 24.2, 'joint');
+    for (const x of [-25, 25]) piece3d(g, 0.6, 26, 0.4, x, 75, 24.2, 'joint');
+    piece3d(g, 140, 112, 36, 0, 150, -6, 'blanc');
+    for (const x of [-46, 0, 46]) for (const y of [122, 150, 178]) piece3d(g, 38, 24, 0.6, x, y, 12.4, 'vitre');
+    piece3d(g, 158, 7, 44, 0, 209.5, -6, 'blanc');
+  } },
+  // Meuble bas en bois : deux tiroirs vitrés et deux portes coulissantes.
+  buffetBois: { l: 112, p: 46, construire(g) {
+    piece3d(g, 108, 78, 44, 0, 41, 0, 'teck');
+    piece3d(g, 112, 3, 47, 0, 81.5, 0.5, 'teck');
+    piece3d(g, 108, 0.6, 0.4, 0, 60, 22.2, 'joint');
+    piece3d(g, 0.6, 78, 0.4, 0, 41, 22.2, 'joint');
+    for (const x of [-27, 27]) {
+      piece3d(g, 30, 7, 0.4, x, 67, 22.3, 'vitre');
+      piece3d(g, 8, 2, 1.5, x, 74, 22.6, 'poignee');
+    }
+  } },
+};
+function construireMeuble(o) {
+  const pos = positionsMeubles[o.id];
+  const g = new THREE.Group();
+  MODELES[o.modele].construire(g, o);
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  g.userData = { phase: o.phase, meuble: o, x: pos?.x ?? o.x, y: pos?.y ?? o.y, angle: pos?.angle ?? o.angle ?? 0 };
+  scene.add(g);
+  elements.push(g);
+  meubles.push(g);
+  const mod = MODELES[o.modele];
+  g.userData.obstacle = { cx: 0, cz: 0, angle: 0, hl: M(mod.l) / 2, he: M(mod.p) / 2, phase: o.phase };
+  obstacles.push(g.userData.obstacle);
+  placerMeuble(g);
+}
+function placerMeuble(g) {
+  const { x, y, angle } = g.userData, a = angle * Math.PI / 180;
+  g.position.set(M(x), 0, -M(y));
+  g.rotation.y = a;
+  Object.assign(g.userData.obstacle, { cx: M(x), cz: -M(y), angle: a });
+}
+for (const o of objets) if (o.type === 'meuble') construireMeuble(o);
+
 function tabouret(o) {
   const groupe = new THREE.Group();
   const matAssise = new THREE.MeshStandardMaterial({ color: o.couleur || '#e6e1d8', roughness: 0.9 });
@@ -1076,7 +1184,98 @@ orbite.minDistance = 4;
 orbite.maxDistance = 45;
 
 const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 120);
-const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };document.getElementById('etage')?.addEventListener('click', () => {
+const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };
+
+// ---------- Déplacer les meubles (bouton Meubles, vue d'ensemble) ----------
+// Attraper un meuble et le faire glisser au sol ; une barre permet de le tourner.
+// Positions enregistrées : window.MAISON_SAUVER_MOBILIER (appli) ou le navigateur.
+let modeMeubles = false, meubleChoisi = null, glisse = null, minuterieSauvegarde = null;
+const solPlan = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const pointeur = new THREE.Vector2(), rayonMeuble = new THREE.Raycaster(), surSol = new THREE.Vector3();
+const cadre = new THREE.BoxHelper(undefined, '#f5b800');
+cadre.visible = false;
+scene.add(cadre);
+const barreMeuble = document.createElement('div');
+barreMeuble.style.cssText = 'position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:5;display:none;gap:6px;align-items:center;background:#1e2429;color:#fff;padding:6px 8px;border-radius:999px;font:600 13px system-ui;box-shadow:0 4px 14px rgb(0 0 0 / .3)';
+barreMeuble.innerHTML = '<span id="nom-meuble" style="padding:0 6px"></span>' +
+  ['↺ 15°|-15', '↻ 15°|15', '↻ 90°|90', 'Origine|origine', 'OK|ok'].map(t => {
+    const [lib, val] = t.split('|');
+    return `<button data-tourner="${val}" style="font:inherit;border:0;border-radius:999px;padding:6px 10px;background:${val === 'ok' ? '#f5b800' : '#38424a'};color:${val === 'ok' ? '#1e2429' : '#fff'};cursor:pointer">${lib}</button>`;
+  }).join('');
+document.body.append(barreMeuble);
+function choisirMeuble(g) {
+  meubleChoisi = g;
+  cadre.visible = !!g;
+  if (g) cadre.setFromObject(g);
+  barreMeuble.style.display = g ? 'flex' : 'none';
+  if (g) barreMeuble.querySelector('#nom-meuble').textContent = g.userData.meuble.nom;
+}
+function sauverMeubles() {
+  clearTimeout(minuterieSauvegarde);
+  minuterieSauvegarde = setTimeout(async () => {
+    const pos = {};
+    for (const g of meubles) pos[g.userData.meuble.id] = { x: Math.round(g.userData.x), y: Math.round(g.userData.y), angle: g.userData.angle };
+    try {
+      if (window.MAISON_SAUVER_MOBILIER) await window.MAISON_SAUVER_MOBILIER(pos);
+      else localStorage.setItem('maquette-mobilier', JSON.stringify(pos));
+    } catch (err) { console.warn('Mobilier non enregistré', err); }
+  }, 500);
+}
+barreMeuble.addEventListener('click', e => {
+  const v = e.target.closest('button')?.dataset.tourner;
+  if (!v || !meubleChoisi) return;
+  if (v === 'ok') { choisirMeuble(null); return; }
+  const u = meubleChoisi.userData;
+  if (v === 'origine') Object.assign(u, { x: u.meuble.x, y: u.meuble.y, angle: u.meuble.angle ?? 0 });
+  else u.angle = ((u.angle + Number(v)) % 360 + 360) % 360;
+  placerMeuble(meubleChoisi);
+  cadre.setFromObject(meubleChoisi);
+  sauverMeubles();
+});
+document.getElementById('meubles')?.addEventListener('click', () => {
+  modeMeubles = !modeMeubles;
+  document.getElementById('meubles').setAttribute('aria-pressed', String(modeMeubles));
+  if (!modeMeubles) choisirMeuble(null);
+});
+const versSol = e => {
+  const r = rendu.domElement.getBoundingClientRect();
+  pointeur.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  rayonMeuble.setFromCamera(pointeur, camEnsemble);
+};
+// Phase capture : on passe avant les commandes de la caméra quand on attrape un meuble.
+rendu.domElement.addEventListener('pointerdown', e => {
+  if (!modeMeubles || mode !== 'ensemble') return;
+  versSol(e);
+  const touche = rayonMeuble.intersectObjects(meubles.filter(g => g.visible), true)[0];
+  if (!touche) { choisirMeuble(null); return; }
+  let g = touche.object;
+  while (!meubles.includes(g)) g = g.parent;
+  choisirMeuble(g);
+  rayonMeuble.ray.intersectPlane(solPlan, surSol);
+  glisse = { id: e.pointerId, dx: g.position.x - surSol.x, dz: g.position.z - surSol.z };
+  orbite.enabled = false;
+  rendu.domElement.setPointerCapture(e.pointerId);
+  e.stopImmediatePropagation();
+}, true);
+rendu.domElement.addEventListener('pointermove', e => {
+  if (!glisse || e.pointerId !== glisse.id) return;
+  versSol(e);
+  if (!rayonMeuble.ray.intersectPlane(solPlan, surSol)) return;
+  meubleChoisi.userData.x = (surSol.x + glisse.dx) * 100;
+  meubleChoisi.userData.y = -(surSol.z + glisse.dz) * 100;
+  placerMeuble(meubleChoisi);
+  cadre.setFromObject(meubleChoisi);
+  e.stopImmediatePropagation();
+}, true);
+const finGlisse = e => {
+  if (!glisse || e.pointerId !== glisse.id) return;
+  glisse = null;
+  orbite.enabled = mode === 'ensemble';
+  sauverMeubles();
+};
+rendu.domElement.addEventListener('pointerup', finGlisse, true);
+rendu.domElement.addEventListener('pointercancel', finGlisse, true);
+document.getElementById('etage')?.addEventListener('click', () => {
   voirEtage = !voirEtage;
   document.getElementById('etage').setAttribute('aria-pressed', String(voirEtage));
   appliquerPhase();
@@ -1090,6 +1289,7 @@ document.querySelectorAll('[data-phase]').forEach(b => b.onclick = () => {
 
 function changerMode(m) {
   mode = m;
+  choisirMeuble(null);
   document.querySelectorAll('[data-mode]').forEach(x => x.setAttribute('aria-pressed', x.dataset.mode === m));
   document.body.classList.toggle('visite', m === 'visite');
   orbite.enabled = m === 'ensemble';
