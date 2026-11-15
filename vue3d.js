@@ -179,8 +179,11 @@ for (const o of objets) {
     const h = M(o.h);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(M(o.l), h, M(o.p)), new THREE.MeshStandardMaterial({ color: o.couleur, roughness: 0.7 }));
     mesh.position.set(M(o.x + o.l / 2), M(o.z || 0) + h / 2, -M(o.y + o.p / 2));
+    // angle (degrés) : tourne l'objet sur lui-même, pour suivre un mur en biais.
+    const angle = (o.angle || 0) * Math.PI / 180;
+    mesh.rotation.y = angle;
     ajouter(mesh, o.phase);
-    if (!o.z) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle: 0, hl: M(o.l) / 2, he: M(o.p) / 2, phase: o.phase });
+    if (!o.z) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(o.l) / 2, he: M(o.p) / 2, phase: o.phase });
   }
 }
 
@@ -235,6 +238,32 @@ function escalier(o) {
   const hTour = marche * bas, hHaut = marche * (bas + tour), hFin = marche * (n + 1);
   limon(x0, cx, y0 + 2, 0, hTour); limon(x0, cx, y0 + w - 2, 0, hTour);
   limon(cx, x0, y1 - 2, hHaut, hFin); limon(cx, x0, y1 - w + 2, hHaut, hFin);
+  // Rampe (photos) : barreaux gris tous les 12 cm et main courante à 90 cm,
+  // côté hall et autour du tournant, et des deux côtés du jour central.
+  // Chaque point : [x, y, hauteur du dessus de marche en m].
+  const rampe = pts => {
+    for (let k = 1; k < pts.length; k++) {
+      const [xa, ya, ha] = pts[k - 1], [xb, yb, hb] = pts[k];
+      const nb = Math.max(1, Math.round(Math.hypot(xb - xa, yb - ya) / 12));
+      for (let s = 0; s <= nb; s++) {
+        if (s === nb && k < pts.length - 1) continue;
+        const t = s / nb, h = ha + (hb - ha) * t;
+        const barreau = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.9, 0.035), mat);
+        barreau.position.set(M(xa + (xb - xa) * t), h + 0.45, -M(ya + (yb - ya) * t));
+        ajouter(barreau);
+      }
+      const a = new THREE.Vector3(M(xa), ha + 0.92, -M(ya)), b = new THREE.Vector3(M(xb), hb + 0.92, -M(yb));
+      const main = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.045, a.distanceTo(b) + 0.03), mat);
+      main.position.copy(a).lerp(b, 0.5);
+      main.lookAt(b);
+      ajouter(main);
+    }
+  };
+  const dessus = i => marche * (i + 1);
+  rampe([[x0 + 4, y0 + 2, dessus(0)], [cx, y0 + 2, dessus(bas)],
+    [x1 - 2, y0 + 2, dessus(bas + tour / 4)], [x1 - 2, y1 - 2, dessus(bas + tour * 3 / 4)]]);
+  rampe([[x0 + 4, y0 + w - 2, dessus(0)], [cx, y0 + w - 2, dessus(bas)]]);
+  rampe([[cx, y1 - w + 2, dessus(bas + tour - 1)], [x0 + 4, y1 - w + 2, dessus(n - 1)]]);
   // Noyau central et poteau de départ.
   for (const [x, y, h] of [[cx, cy, hFin], [x0 + 4, y0 + w - 4, 1]]) {
     const poteau = new THREE.Mesh(new THREE.BoxGeometry(0.08, h, 0.08), mat);
@@ -277,8 +306,7 @@ orbite.minDistance = 4;
 orbite.maxDistance = 45;
 
 const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 120);
-const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70 };
-document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => changerMode(b.dataset.mode));
+const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70 };document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => changerMode(b.dataset.mode));
 document.querySelectorAll('[data-phase]').forEach(b => b.onclick = () => {
   phase = b.dataset.phase;
   document.querySelectorAll('[data-phase]').forEach(x => x.setAttribute('aria-pressed', x === b));
