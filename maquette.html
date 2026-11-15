@@ -31,7 +31,7 @@
     .etiquettes span { position: absolute; transform: translate(-50%, -50%); font-size: 12px; font-weight: 700; color: #1e2429; background: rgb(255 255 255 / .82); padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
     .etiquettes span.cote { font-size: 10.5px; font-weight: 600; color: #0d4f9c; background: rgb(232 242 255 / .9); padding: 1px 4px; border-radius: 4px; }
     .etiquettes span.ouverture { color: #8a4b00; background: rgb(255 240 220 / .92); }
-    .visite .etiquettes { display: none; }
+    .visite .etiquettes span:not(.cote) { display: none; }
     .etat { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--doux); }
     .etat a { color: var(--jaune); }
     @media (max-width: 640px) { .aide { display: none; } }

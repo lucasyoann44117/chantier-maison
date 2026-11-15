@@ -62,6 +62,8 @@ function ajouter(mesh, phase, ombre = true) {
 
 // ---------- Murs ----------
 
+const piecesDeMur = [];
+
 function construireMur(m) {
   const [ax, ay] = m.a, [bx, by] = m.b;
   const longueur = Math.hypot(bx - ax, by - ay);
@@ -78,6 +80,7 @@ function construireMur(m) {
     mesh.position.set(M(ax + ux * milieu), (z0 + z1) / 2, -M(ay + uy * milieu));
     mesh.rotation.y = angle;
     ajouter(mesh, m.phase, materiau !== matVitre);
+    if (materiau !== matVitre) piecesDeMur.push(mesh); // pour cacher les cotes derrière un mur
     // Bloque la marche s'il occupe la hauteur d'une personne.
     if (bloque && z0 < 1.2 && z1 > 0.3) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(e - s) / 2, he: Math.max(ep, 0.06) / 2, phase: m.phase });
   };
@@ -521,7 +524,7 @@ const cotes = [];
 const matCote = new THREE.LineBasicMaterial({ color: '#1f6fd1' });
 let cotesVisibles = false;
 const enMetres = cm => `${(cm / 100).toFixed(2).replace('.', ',')} m`;
-function coter([ax, ay], [bx, by], hauteur, texte, phase, classe = 'cote') {
+function coter([ax, ay], [bx, by], hauteur, texte, phase, classe = 'cote', lieux = []) {
   const lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
   const t = 7; // demi-longueur des petits traits d'extrémité (cm)
   const pts = [[ax, ay], [bx, by], [ax - uy * t, ay + ux * t], [ax + uy * t, ay - ux * t], [bx - uy * t, by + ux * t], [bx + uy * t, by - ux * t]]
@@ -534,7 +537,7 @@ function coter([ax, ay], [bx, by], hauteur, texte, phase, classe = 'cote') {
   el.textContent = texte;
   el.style.display = 'none';
   conteneurEtiquettes.append(el);
-  cotes.push({ el, ligne, phase, pos: new THREE.Vector3(M((ax + bx) / 2), hauteur, -M((ay + by) / 2)) });
+  cotes.push({ el, ligne, phase, lieux, pos: new THREE.Vector3(M((ax + bx) / 2), hauteur, -M((ay + by) / 2)) });
 }
 // Ouvertures portées par un côté de pièce : celles d'un mur parallèle à ce côté,
 // à moins d'une demi-épaisseur de mur, dont le milieu tombe sur le côté.
@@ -575,7 +578,7 @@ for (const p of pieces) {
     // Une pièce qui n'existe qu'après travaux ne garde que les ouvertures de sa phase.
     const ouvertures = ouverturesDuCote(a, b).filter(o => !p.phase || !o.phase || o.phase === p.phase);
     // Longueur totale du côté ; plus loin du mur s'il y a une chaîne de cotes devant.
-    coter(le(0, ouvertures.length ? 48 : 22), le(lg, ouvertures.length ? 48 : 22), 0.03, enMetres(lg), p.phase);
+    coter(le(0, ouvertures.length ? 48 : 22), le(lg, ouvertures.length ? 48 : 22), 0.03, enMetres(lg), p.phase, 'cote', [p]);
     // Chaîne de cotes par phase : morceaux de mur pleins entre les ouvertures.
     const phases = [...new Set(ouvertures.map(o => o.phase))];
     const parPhase = !ouvertures.length ? [] : phases.some(ph => ph) ? phases.filter(ph => ph) : [undefined];
@@ -583,19 +586,35 @@ for (const p of pieces) {
       const liste = ouvertures.filter(o => !o.phase || o.phase === ph).sort((u, w) => u.s - w.s);
       let t = 0;
       for (const o of [...liste, { s: lg, e: lg }]) {
-        if (o.s - t >= 2) coter(le(t, 22), le(o.s, 22), 0.03, enMetres(o.s - t), p.phase || ph);
+        if (o.s - t >= 2) coter(le(t, 22), le(o.s, 22), 0.03, enMetres(o.s - t), p.phase || ph, 'cote', [p]);
         t = Math.max(t, o.e);
       }
     }
   });
 }
+// Pièces ouvertes l'une sur l'autre (passage, arche) : en visite, on voit aussi
+// les cotes de la pièce d'à côté.
+const liens = [];
 for (const m of murs) for (const o of m.ouvertures || []) {
   const [ax, ay] = m.a, [bx, by] = m.b, lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
+  // Pièces de part et d'autre de l'ouverture.
+  const mx = ax + ux * (o.pos + o.largeur / 2), my = ay + uy * (o.pos + o.largeur / 2), d = m.ep / 2 + 15;
+  const lieux = pieces.filter(p => (!p.phase || !m.phase || p.phase === m.phase) &&
+    (dans(p.poly, mx - uy * d, my + ux * d) || dans(p.poly, mx + uy * d, my - ux * d)));
+  if ((o.type === 'passage' || o.type === 'arche') && lieux.length === 2) liens.push({ a: lieux[0], b: lieux[1], phase: m.phase });
   coter([ax + ux * o.pos, ay + uy * o.pos], [ax + ux * (o.pos + o.largeur), ay + uy * (o.pos + o.largeur)],
-    H + 0.03, `↔ ${enMetres(o.largeur)}`, m.phase, 'cote ouverture');
+    H + 0.03, `↔ ${enMetres(o.largeur)}`, m.phase, 'cote ouverture', lieux);
+  const c = cotes[cotes.length - 1];
+  c.posVisite = c.pos.clone();
+  c.posVisite.y = Math.min(H, M(o.haut)) - 0.07; // juste sous le linteau, dans le vide de l'ouverture
 }
 function reglerCotes() {
-  for (const c of cotes) c.ligne.visible = cotesVisibles && mode === 'ensemble' && visible(c.phase);
+  for (const c of cotes) {
+    c.ligne.visible = cotesVisibles && visible(c.phase);
+    // En visite, la cote d'une ouverture descend juste sous le haut de l'ouverture
+    // (en vue d'ensemble, elle est posée sur le dessus du mur).
+    c.ligne.position.y = mode === 'visite' && c.posVisite ? c.posVisite.y - c.pos.y : 0;
+  }
   document.getElementById('cotes')?.setAttribute('aria-pressed', String(cotesVisibles));
 }
 document.getElementById('cotes')?.addEventListener('click', () => {
@@ -765,6 +784,8 @@ function majVisite(dt) {
 // ---------- Boucle ----------
 
 const v = new THREE.Vector3();
+const rayon = new THREE.Raycaster();
+let imageVisite = 0;
 let avant = performance.now();
 function boucle(t) {
   const dt = Math.min(0.05, (t - avant) / 1000);
@@ -796,6 +817,38 @@ function boucle(t) {
       const x = (v.x * 0.5 + 0.5) * innerWidth, y = (-v.y * 0.5 + 0.5) * innerHeight;
       const dl = c.el.textContent.length * 3.3 + 5, dh = 8;
       const libre = v.z < 1 && !placees.some(([px, py, pl]) => Math.abs(px - x) < dl + pl && Math.abs(py - y) < dh * 2);
+      c.el.style.display = libre ? '' : 'none';
+      if (!libre) continue;
+      placees.push([x, y, dl]);
+      c.el.style.left = `${x}px`;
+      c.el.style.top = `${y}px`;
+    }
+  }
+  if (mode === 'visite') {
+    // En visite : les cotes de la pièce où l'on est et des pièces ouvertes dessus,
+    // à moins de 7 m et devant soi.
+    const ici = pieces.find(p => visible(p.phase) && dans(p.poly, joueur.x * 100, -joueur.z * 100));
+    const zone = new Set([ici]);
+    for (const l of liens) if (visible(l.phase) && (l.a === ici || l.b === ici)) zone.add(l.a).add(l.b);
+    const placees = [];
+    // Test « caché par un mur » refait toutes les 8 images seulement (téléphones).
+    const tester = (imageVisite = (imageVisite + 1) % 8) === 0;
+    for (const c of cotes) {
+      const p = c.posVisite || c.pos;
+      const proche = ici && c.lieux.some(q => zone.has(q)) && p.distanceTo(cam.position) < 7;
+      if (!cotesVisibles || !visible(c.phase) || !proche) { c.el.style.display = 'none'; continue; }
+      if (tester || c.cachee === undefined) {
+        const dir = p.clone().sub(cam.position), dist = dir.length();
+        rayon.set(cam.position, dir.normalize());
+        rayon.far = dist - 0.12;
+        c.cachee = rayon.intersectObjects(piecesDeMur, false).some(h => h.object.visible);
+      }
+      if (c.cachee) { c.el.style.display = 'none'; continue; }
+      v.copy(p).project(cam);
+      const x = (v.x * 0.5 + 0.5) * innerWidth, y = (-v.y * 0.5 + 0.5) * innerHeight;
+      const dl = c.el.textContent.length * 3.3 + 5, dh = 8;
+      const libre = v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1 &&
+        !placees.some(([px, py, pl]) => Math.abs(px - x) < dl + pl && Math.abs(py - y) < dh * 2);
       c.el.style.display = libre ? '' : 'none';
       if (!libre) continue;
       placees.push([x, y, dl]);
