@@ -119,40 +119,64 @@ murs.forEach(construireMur);
 
 const formeDe = poly => new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(M(x), M(y))));
 
-// Carrelage actuel (photos) : carreaux beiges mouchetés, joints gris, posés droit.
-// Dessiné une fois sur 4 × 4 carreaux, un peu différents les uns des autres.
-function texteCarrelage(cote) {
-  const px = 128, n = 4, c = document.createElement('canvas');
-  c.width = c.height = px * n;
+// Calepinages : un motif qui se répète, en cases de grille [x, y, largeur, hauteur].
+const MOTIFS = {
+  // Carrelage actuel (photos) : carrés identiques posés droit, 4 × 4 pour varier les teintes.
+  carre: { cases: 4, rects: Array.from({ length: 16 }, (_, k) => [k % 4, Math.floor(k / 4), 1, 1]),
+    couleur: [242, 232, 212], joint: '#9c968c', mouchetis: 140 },
+  // Futur sol (provisoire, rien n'est choisi) : multi-formats façon carrelage ancien,
+  // carrés et rectangles de 1 × 1 à 3 × 2 modules (20 à 60 cm avec un module de 20), grège.
+  multiformat: { cases: 6, rects: [
+    [0, 0, 3, 2], [3, 0, 2, 2], [5, 0, 1, 2],
+    [0, 2, 2, 2], [2, 2, 1, 1], [2, 3, 1, 1], [3, 2, 3, 2],
+    [0, 4, 1, 2], [1, 4, 2, 2], [3, 4, 3, 2]],
+    couleur: [196, 188, 175], joint: '#d9d4cb', mouchetis: 40 },
+};
+
+function texteCarrelage(nom) {
+  const m = MOTIFS[nom], px = 96, c = document.createElement('canvas');
+  c.width = c.height = px * m.cases;
   const g = c.getContext('2d');
-  g.fillStyle = '#9c968c';
+  g.fillStyle = m.joint;
   g.fillRect(0, 0, c.width, c.height);
   let graine = 7;
   const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    const v = Math.round(hasard() * 10 - 5);
-    g.fillStyle = `rgb(${242 + v}, ${232 + v}, ${212 + v})`;
-    g.fillRect(i * px + 3, j * px + 3, px - 6, px - 6);
-    for (let k = 0; k < 140; k++) {
-      g.fillStyle = hasard() < 0.5 ? 'rgba(150,135,110,0.35)' : 'rgba(255,250,240,0.4)';
-      g.fillRect(i * px + 4 + hasard() * (px - 8), j * px + 4 + hasard() * (px - 8), 2, 2);
+  for (const [i, j, l, h] of m.rects) {
+    const v = Math.round(hasard() * 12 - 6), [r, v2, b] = m.couleur;
+    const x = i * px + 2, y = j * px + 2, w = l * px - 4, hh = h * px - 4;
+    g.fillStyle = `rgb(${r + v}, ${v2 + v}, ${b + v})`;
+    g.fillRect(x, y, w, hh);
+    for (let k = 0; k < m.mouchetis * l * h; k++) {
+      g.fillStyle = hasard() < 0.5 ? 'rgba(130,120,105,0.3)' : 'rgba(255,250,240,0.35)';
+      g.fillRect(x + 1 + hasard() * (w - 2), y + 1 + hasard() * (hh - 2), 2, 2);
     }
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = rendu.capabilities.getMaxAnisotropy();
-  // Les UV d'une ShapeGeometry sont les coordonnées du plan, en mètres.
-  t.repeat.set(1 / (n * M(cote)), 1 / (n * M(cote)));
   return t;
 }
-const matCarrelage = {};
+
+const textures = {};
+// Carrelage { motif, module (cm) } d'une pièce, centré sur elle pour rester symétrique.
+function materiauCarrelage(p, { motif, module }) {
+  textures[motif] ??= texteCarrelage(motif);
+  const t = textures[motif].clone();
+  t.needsUpdate = true;
+  // Les UV d'une ShapeGeometry sont les coordonnées du plan, en mètres.
+  const rep = 1 / (MOTIFS[motif].cases * M(module));
+  t.repeat.set(rep, rep);
+  const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
+  const cx = M((Math.min(...xs) + Math.max(...xs)) / 2), cy = M((Math.min(...ys) + Math.max(...ys)) / 2);
+  t.offset.set(0.5 - cx * rep, 0.5 - cy * rep);
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 });
+}
+
 function materiauSol(p, ph) {
-  if (ph === 'avant' && p.carrelageAvant) {
-    const cote = p.carrelageAvant;
-    matCarrelage[cote] ??= new THREE.MeshStandardMaterial({ map: texteCarrelage(cote), roughness: 0.5 });
-    return matCarrelage[cote];
-  }
+  // carrelageAvant : côté des carreaux actuels (cm) ; carrelageApres : { motif, module }.
+  if (ph === 'avant' && p.carrelageAvant) return materiauCarrelage(p, { motif: 'carre', module: p.carrelageAvant });
+  if (ph === 'apres' && p.carrelageApres) return materiauCarrelage(p, p.carrelageApres);
   return new THREE.MeshStandardMaterial({ color: p.sol, roughness: 0.85 });
 }
 
@@ -160,8 +184,9 @@ const plafonds = [];
 for (const p of pieces) {
   const geo = new THREE.ShapeGeometry(formeDe(p.poly));
   geo.rotateX(-Math.PI / 2); // (x, y) du plan → (X, -Z)
-  // Une pièce carrelée aujourd'hui a deux sols : le carrelage en « avant », sa couleur en « après ».
-  for (const ph of p.carrelageAvant && !p.phase ? ['avant', 'apres'] : [p.phase]) {
+  // Un sol par phase quand il change : carrelage actuel en « avant », futur sol en « après ».
+  const deuxSols = !p.phase && (p.carrelageAvant || p.carrelageApres);
+  for (const ph of deuxSols ? ['avant', 'apres'] : [p.phase]) {
     const solPiece = new THREE.Mesh(geo, materiauSol(p, ph));
     solPiece.position.y = 0.001;
     ajouter(solPiece, ph, false);
