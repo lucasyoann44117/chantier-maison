@@ -278,6 +278,39 @@ for (const p of pieces) {
   plafonds.push(plafond);
 }
 
+// ---------- Éclairage intérieur (bouton Lumière) ----------
+// Un spot au plafond au centre de chaque pièce, ou aux points « lampes » de la pièce.
+// Lumière sans ombres portées pour rester fluide sur téléphone.
+const lampes = [];
+const matSpot = new THREE.MeshStandardMaterial({ color: '#f4f1ea', emissive: '#000000', roughness: 0.4 });
+for (const p of pieces) {
+  const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
+  const points = p.lampes || [[(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]];
+  for (const [x, y] of points) {
+    const lampe = new THREE.PointLight('#fff0dc', 0, 0, 2); // blanc chaud (3000 K environ)
+    lampe.position.set(M(x), H - 0.12, -M(y));
+    lampe.userData.phase = p.phase;
+    scene.add(lampe);
+    elements.push(lampe);
+    lampes.push(lampe);
+    const spot = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.012, 20), matSpot);
+    spot.position.set(M(x), H - 0.006, -M(y));
+    ajouter(spot, p.phase, false);
+    plafonds.push(spot); // caché en vue d'ensemble, comme le plafond
+  }
+}
+// Les spots n'éclairent qu'en visite : en vue d'ensemble, sans plafond, ils éblouiraient.
+let lumiere = true;
+function reglerLampes(visite) {
+  for (const l of lampes) l.intensity = lumiere && visite ? 5 : 0;
+  matSpot.emissive.set(lumiere ? '#fff1d6' : '#000000');
+  document.getElementById('lumiere')?.setAttribute('aria-pressed', String(lumiere));
+}
+document.getElementById('lumiere')?.addEventListener('click', () => {
+  lumiere = !lumiere;
+  reglerLampes(mode === 'visite');
+});
+
 for (const o of objets) {
   if (o.type === 'escalier') escalier(o);
   else if (o.type === 'tabouret') tabouret(o);
@@ -491,6 +524,7 @@ if (tactile) document.body.classList.add('tactile');
 function visible(ph) { return !ph || ph === phase; }
 function appliquerPhase() {
   for (const e of elements) e.visible = visible(e.userData.phase) && (mode === 'visite' || !plafonds.includes(e));
+  reglerLampes(mode === 'visite');
 }
 
 const camEnsemble = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
