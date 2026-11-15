@@ -416,7 +416,10 @@ function materiauCarrelage(p, { motif, module }) {
     const t = source.clone();
     t.needsUpdate = true;
     t.repeat.set(rep, rep);
-    if (MOTIFS[motif].centre !== false) {
+    if (motif === 'carre' && p.origineAvant) {
+      // Pose réelle : un croisement de joints au point donné (même quadrillage partout).
+      t.offset.set(-M(p.origineAvant[0]) * rep, -M(p.origineAvant[1]) * rep);
+    } else if (MOTIFS[motif].centre !== false) {
       const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
       const cx = M((Math.min(...xs) + Math.max(...xs)) / 2), cy = M((Math.min(...ys) + Math.max(...ys)) / 2);
       t.offset.set(0.5 - cx * rep, 0.5 - cy * rep);
