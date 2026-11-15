@@ -88,6 +88,10 @@ function texteCrepi() {
 }
 const grainCrepi = texteCrepi();
 const matCrepi = new THREE.MeshStandardMaterial({ color: '#ece8df', roughness: 0.95, bumpMap: grainCrepi, bumpScale: 1.2 });
+const matCrepiPignon = new THREE.MeshStandardMaterial({ color: '#ece8df', roughness: 0.95, side: THREE.DoubleSide });
+const matArdoise = new THREE.MeshStandardMaterial({ color: '#5d636b', roughness: 0.7, side: THREE.DoubleSide });
+// Volets : bleu plus doux que sur la photo de 2008 (dit par l'utilisateur), à recaler sur photo.
+const matVolet = new THREE.MeshStandardMaterial({ color: '#5f7a96', roughness: 0.6 });
 // UV d'une boîte à l'échelle réelle (une image = « echelle » mètres), sans rotation.
 function uvEchelle(geo, l, h, p, echelle) {
   const uv = geo.attributes.uv, tailles = [[p, h], [p, h], [l, p], [l, p], [l, h], [l, h]];
@@ -107,10 +111,17 @@ function construireMur(m) {
 
   // Face extérieure : celle dont le côté ne tombe dans aucune pièce (l'autre, si).
   // La face +Z locale de la boîte regarde vers (uy, -ux) dans le plan.
-  const mx = (ax + bx) / 2, my = (ay + by) / 2, d = m.ep / 2 + 20;
+  // Testé en plusieurs points le long du mur (le milieu peut tomber sur un placard).
+  const d = m.ep / 2 + 20;
   const dansUnePiece = (x, y) => pieces.some(p => (!p.phase || !m.phase || p.phase === m.phase) && dans(p.poly, x, y));
-  const plus = dansUnePiece(mx + uy * d, my - ux * d), moins = dansUnePiece(mx - uy * d, my + ux * d);
-  const faceExterieure = plus === moins ? -1 : plus ? 5 : 4;
+  let plus = 0, moins = 0;
+  for (const t of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+    const px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+    const p1 = dansUnePiece(px + uy * d, py - ux * d), p2 = dansUnePiece(px - uy * d, py + ux * d);
+    if (p1 && !p2) plus++;
+    if (p2 && !p1) moins++;
+  }
+  const faceExterieure = plus === moins ? -1 : plus > moins ? 5 : 4;
 
   // Un pavé du mur entre s et e (cm, le long du mur), de z0 à z1 (m).
   const pave = (s, e, z0, z1, materiau = matMur, bloque = true) => {
@@ -144,6 +155,21 @@ function construireMur(m) {
     curseur = e;
   }
   pave(curseur, longueur, 0, H);
+
+  // Volets ouverts contre la façade, de part et d'autre des fenêtres extérieures.
+  if (faceExterieure < 0) return;
+  const sens = faceExterieure === 4 ? 1 : -1; // vers l'extérieur : (uy, -ux) * sens
+  const decal = M(m.ep) / 2 + 0.025;
+  for (const o of ouvertures) {
+    if (o.type !== 'fenetre') continue;
+    const hv = M(o.haut - o.allege), lv = M(o.largeur / 2);
+    for (const centre of [o.pos - o.largeur / 4, o.pos + o.largeur + o.largeur / 4]) {
+      const volet = new THREE.Mesh(new THREE.BoxGeometry(lv, hv, 0.03), matVolet);
+      volet.position.set(M(ax + ux * centre) + uy * sens * decal, M(o.allege) + hv / 2, -(M(ay + uy * centre) - ux * sens * decal));
+      volet.rotation.y = angle;
+      ajouter(volet, m.phase, true);
+    }
+  }
 }
 
 // Linteau en arc : un rectangle percé d'un demi-cercle, extrudé dans l'épaisseur.
@@ -774,7 +800,6 @@ function murEtage(m) {
 }
 // Surface plane du toit à partir de points du plan (cm) et de leur hauteur (cm).
 const matToit = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 1, side: THREE.DoubleSide });
-const matArdoise = new THREE.MeshStandardMaterial({ color: '#5d636b', roughness: 0.7, side: THREE.DoubleSide });
 const matFenetreToit = new THREE.MeshStandardMaterial({ color: '#bcd6ea', emissive: '#6f8fa8', roughness: 0.2, side: THREE.DoubleSide });
 function surfaceToit(points, materiau = matToit, decalage = 0) {
   const geo = new THREE.BufferGeometry().setFromPoints(points.map(([x, y, h]) => new THREE.Vector3(M(x), M(h) - decalage, -M(y))));
@@ -783,13 +808,6 @@ function surfaceToit(points, materiau = matToit, decalage = 0) {
   const mesh = new THREE.Mesh(geo, materiau);
   ajouter(ajouterEtage(mesh, { toit: true }), undefined, true);
   plafonds.push(mesh);
-  // Couverture en ardoise vue de dehors : même surface, 15 cm plus haut.
-  if (materiau === matToit) {
-    const dessus = new THREE.Mesh(geo, matArdoise);
-    dessus.position.y = 0.15;
-    ajouter(ajouterEtage(dessus, { toit: true }), undefined, true);
-    plafonds.push(dessus);
-  }
   return mesh;
 }
 if (etage) {
@@ -876,6 +894,44 @@ if (etage) {
   }
 }
 
+// ---------- Toit extérieur (ardoise) ----------
+// Toit à deux pans sur le corps de la maison, faîtage est-ouest au milieu (y = 469,
+// comme le faîtage de l'étage), pignons à l'ouest et à l'est ; toit à quatre pans
+// sur le garage. Pente et débords supposés (40°, 30 cm) : à confirmer.
+// Visible en visite (on le voit de dehors) et, en vue d'ensemble, avec le bouton Toit.
+const toitDehors = [];
+function pan(points, materiau = matArdoise) {
+  const geo = new THREE.BufferGeometry().setFromPoints(points.map(([x, y, h]) => new THREE.Vector3(M(x), M(h), -M(y))));
+  geo.setIndex(points.length === 4 ? [0, 1, 2, 0, 2, 3] : [0, 1, 2]);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, materiau);
+  ajouter(mesh, undefined, true);
+  mesh.userData.toitDehors = true;
+  toitDehors.push(mesh);
+}
+if (etage) {
+  const p = 0.84, deb = 30, egout = 255;
+  const [xo, xe, ys, yn] = [320 - deb, 1578 + deb, 0 - deb, 938 + deb], yf = 469;
+  const hf = egout + p * (yf - ys);
+  pan([[xo, ys, egout], [xe, ys, egout], [xe, yf, hf], [xo, yf, hf]]);
+  pan([[xo, yn, egout], [xe, yn, egout], [xe, yf, hf], [xo, yf, hf]]);
+  // Pignons en crépi (triangles au-dessus des murs).
+  for (const x of [320, 1578]) pan([[x, -deb, H * 100], [x, 938 + deb, H * 100], [x, yf, hf]], matCrepiPignon);
+  // Garage : quatre pans, plus bas.
+  const [gx0, gx1, gy0, gy1] = [0 - 20, 320, 145 - 20, 791 + 20], ge = 250, gm = (gx0 + gx1) / 2, gh = ge + p * (gm - gx0);
+  const r0 = gy0 + (gm - gx0), r1 = gy1 - (gm - gx0);
+  pan([[gx0, gy0, ge], [gx0, gy1, ge], [gm, r1, gh], [gm, r0, gh]]);
+  pan([[gx1, gy0, ge], [gx1, gy1, ge], [gm, r1, gh], [gm, r0, gh]]);
+  pan([[gx0, gy0, ge], [gx1, gy0, ge], [gm, r0, gh]]);
+  pan([[gx0, gy1, ge], [gx1, gy1, ge], [gm, r1, gh]]);
+}
+let voirToit = false;
+document.getElementById('toit')?.addEventListener('click', () => {
+  voirToit = !voirToit;
+  document.getElementById('toit').setAttribute('aria-pressed', String(voirToit));
+  appliquerPhase();
+});
+
 // Hauteur des marches sous les pieds (m), en continu le long de l'escalier ;
 // null hors de la cage.
 function hauteurEscalier(x, y) {
@@ -903,7 +959,8 @@ const niveauMontre = niv => mode === 'visite' || (niv === 1) === voirEtage || (!
 function appliquerPhase() {
   for (const e of elements) {
     e.visible = visible(e.userData.phase) && (mode === 'visite' || !plafonds.includes(e)) &&
-      (e.userData.niveau !== 1 || mode === 'visite' || voirEtage);
+      (e.userData.niveau !== 1 || mode === 'visite' || voirEtage) &&
+      (!e.userData.toitDehors || mode === 'visite' || voirToit);
   }
   reglerLampes(mode === 'visite');
   reglerCotes();
