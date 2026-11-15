@@ -536,18 +536,57 @@ function coter([ax, ay], [bx, by], hauteur, texte, phase, classe = 'cote') {
   conteneurEtiquettes.append(el);
   cotes.push({ el, ligne, phase, pos: new THREE.Vector3(M((ax + bx) / 2), hauteur, -M((ay + by) / 2)) });
 }
+// Ouvertures portées par un côté de pièce : celles d'un mur parallèle à ce côté,
+// à moins d'une demi-épaisseur de mur, dont le milieu tombe sur le côté.
+// Renvoie [{ s, e, phase }] en cm le long du côté.
+function ouverturesDuCote(a, b) {
+  const lg = Math.hypot(b[0] - a[0], b[1] - a[1]), ex = (b[0] - a[0]) / lg, ey = (b[1] - a[1]) / lg;
+  const surCote = ([x, y]) => (x - a[0]) * ex + (y - a[1]) * ey;
+  const trouvees = [];
+  for (const m of murs) {
+    if (!m.ouvertures) continue;
+    const [ax, ay] = m.a, [bx, by] = m.b, lm = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lm, uy = (by - ay) / lm;
+    if (Math.abs(ux * ey - uy * ex) > 0.05) continue; // pas parallèle
+    for (const o of m.ouvertures) {
+      const point = d => [ax + ux * d, ay + uy * d];
+      const [mx, my] = point(o.pos + o.largeur / 2);
+      const ecart = Math.abs((mx - a[0]) * ey - (my - a[1]) * ex);
+      const t = surCote([mx, my]);
+      if (ecart > m.ep / 2 + 4 || t < 0 || t > lg) continue;
+      const s = Math.max(0, Math.min(surCote(point(o.pos)), surCote(point(o.pos + o.largeur))));
+      const e = Math.min(lg, Math.max(surCote(point(o.pos)), surCote(point(o.pos + o.largeur))));
+      trouvees.push({ s, e, phase: m.phase });
+    }
+  }
+  return trouvees;
+}
 for (const p of pieces) {
   const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
   p.poly.forEach((a, i) => {
     const b = p.poly[(i + 1) % p.poly.length];
     const lg = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (lg < 45) return; // les petits retours encombreraient le plan
-    let nx = -(b[1] - a[1]) / lg, ny = (b[0] - a[0]) / lg;
+    if (lg < 3) return;
+    const ex = (b[0] - a[0]) / lg, ey = (b[1] - a[1]) / lg;
+    let nx = -ey, ny = ex;
     const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
     if (nx * (cx - mx) + ny * (cy - my) < 0) { nx = -nx; ny = -ny; } // vers l'intérieur
-    const d = 22;
-    coter([a[0] + nx * d, a[1] + ny * d], [b[0] + nx * d, b[1] + ny * d], 0.03, enMetres(lg), p.phase);
+    const le = (t, d) => [a[0] + ex * t + nx * d, a[1] + ey * t + ny * d];
+    // Une pièce qui n'existe qu'après travaux ne garde que les ouvertures de sa phase.
+    const ouvertures = ouverturesDuCote(a, b).filter(o => !p.phase || !o.phase || o.phase === p.phase);
+    // Longueur totale du côté ; plus loin du mur s'il y a une chaîne de cotes devant.
+    coter(le(0, ouvertures.length ? 48 : 22), le(lg, ouvertures.length ? 48 : 22), 0.03, enMetres(lg), p.phase);
+    // Chaîne de cotes par phase : morceaux de mur pleins entre les ouvertures.
+    const phases = [...new Set(ouvertures.map(o => o.phase))];
+    const parPhase = !ouvertures.length ? [] : phases.some(ph => ph) ? phases.filter(ph => ph) : [undefined];
+    for (const ph of parPhase) {
+      const liste = ouvertures.filter(o => !o.phase || o.phase === ph).sort((u, w) => u.s - w.s);
+      let t = 0;
+      for (const o of [...liste, { s: lg, e: lg }]) {
+        if (o.s - t >= 2) coter(le(t, 22), le(o.s, 22), 0.03, enMetres(o.s - t), p.phase || ph);
+        t = Math.max(t, o.e);
+      }
+    }
   });
 }
 for (const m of murs) for (const o of m.ouvertures || []) {
