@@ -895,6 +895,18 @@ const MODELES = {
     piece3d(g, 38, 38, 18, 0, 59, -22, 'porcelaine');
     piece3d(g, 38, 2.5, 48, 0, 41, 8, o.couleur || 'porcelaine');
   } },
+  // Lave-linge ou sèche-linge : caisse blanche, hublot devant, bandeau de commande.
+  lavelinge: { construire(g, o) {
+    const { l, p, h } = o;
+    piece3d(g, l, h, p, 0, h / 2, 0, 'porcelaine');
+    piece3d(g, l - 4, 10, 0.5, 0, h - 7, p / 2 + 0.2, '#e4e6e8');
+    const hublot = new THREE.Mesh(new THREE.CylinderGeometry(M(17), M(17), M(1.5), 32), matMeuble('vitre'));
+    hublot.rotation.x = Math.PI / 2;
+    hublot.position.set(0, M(h * 0.45), M(p / 2 + 0.6));
+    const bague = new THREE.Mesh(new THREE.TorusGeometry(M(17), M(2), 8, 32), matMeuble('gris'));
+    bague.position.copy(hublot.position);
+    g.add(hublot, bague);
+  } },
   // Vélo de route : deux roues, cadre en losange, selle, cintre (longueur sur X).
   velo: { construire(g, o) {
     const r = 34, e = o.l / 2 - r, mat = o.mat || '#2b2d31';
