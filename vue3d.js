@@ -580,6 +580,19 @@ function veinage() {
     g.strokeStyle = 'rgba(110, 80, 45, 0.18)';
     for (let r = 2; r < 12; r += 3) { g.beginPath(); g.ellipse(x, y, r * 0.6, r * 1.8, 0, 0, 6.3); g.stroke(); }
   }
+  // Fentes sombres dans le fil, comme sur l'échantillon Chêne San Rémo.
+  for (let k = 0; k < 9; k++) {
+    const x0 = hasard() * 512, y0 = hasard() * 512, lg = 60 + hasard() * 220;
+    g.strokeStyle = `rgba(60, 45, 32, ${0.35 + hasard() * 0.3})`;
+    g.lineWidth = 0.8 + hasard() * 1.2;
+    g.beginPath();
+    for (let y = 0; y <= lg; y += 6) {
+      const x = x0 + Math.sin((y0 + y) / 40) * 2 + (hasard() - 0.5) * 1.5;
+      y ? g.lineTo(x, (y0 + y) % 512) : g.moveTo(x, y0);
+      if ((y0 + y) % 512 < 6 && y) g.moveTo(x, (y0 + y) % 512);
+    }
+    g.stroke();
+  }
   texteVeinage = new THREE.CanvasTexture(c);
   texteVeinage.wrapS = texteVeinage.wrapT = THREE.RepeatWrapping;
   texteVeinage.colorSpace = THREE.SRGBColorSpace;
@@ -1274,8 +1287,7 @@ const finGlisse = e => {
   sauverMeubles();
 };
 rendu.domElement.addEventListener('pointerup', finGlisse, true);
-rendu.domElement.addEventListener('pointercancel', finGlisse, true);
-document.getElementById('etage')?.addEventListener('click', () => {
+rendu.domElement.addEventListener('pointercancel', finGlisse, true);document.getElementById('etage')?.addEventListener('click', () => {
   voirEtage = !voirEtage;
   document.getElementById('etage').setAttribute('aria-pressed', String(voirEtage));
   appliquerPhase();
