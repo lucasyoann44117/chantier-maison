@@ -523,7 +523,7 @@ for (const p of pieces) {
 // Les spots n'éclairent qu'en visite : en vue d'ensemble, sans plafond, ils éblouiraient.
 let lumiere = true;
 function reglerLampes(visite) {
-  for (const l of lampes) l.intensity = lumiere && visite ? 5 : 0;
+  for (const l of lampes) l.intensity = lumiere && visite ? (l.userData.puissance ?? 5) : 0;
   matSpot.emissive.set(lumiere ? '#fff1d6' : '#000000');
   document.getElementById('lumiere')?.setAttribute('aria-pressed', String(lumiere));
 }
@@ -536,7 +536,18 @@ for (const o of objets) {
   if (o.type === 'escalier') escalier(o);
   else if (o.type === 'tabouret') tabouret(o);
   else if (o.type === 'meuble') continue; // construits plus bas (mobilier déplaçable)
-  else {
+  else if (o.type === 'spot') {
+    // Spot encastré sous un meuble haut : petit disque et lumière douce vers le bas.
+    const lampe = new THREE.PointLight('#fff0dc', 0, 2.5, 2);
+    lampe.position.set(M(o.x), M(o.z) - 0.03, -M(o.y));
+    Object.assign(lampe.userData, { phase: o.phase, puissance: 0.8 });
+    scene.add(lampe);
+    elements.push(lampe);
+    lampes.push(lampe);
+    const spot = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.006, 16), matSpot);
+    spot.position.set(M(o.x), M(o.z) - 0.003, -M(o.y));
+    ajouter(spot, o.phase, false);
+  } else {
     const h = M(o.h);
     const mat = o.matiere === 'chene'
       ? new THREE.MeshStandardMaterial({ color: o.couleur, map: veinage(), roughness: 0.65 })
@@ -632,9 +643,19 @@ try { positionsMeubles = window.MAISON_MOBILIER || JSON.parse(localStorage.getIt
 const matsMeuble = {};
 function matMeuble(nom) {
   if (matsMeuble[nom]) return matsMeuble[nom];
+  // Une couleur « #rrggbb » donne un matériau uni (tissus, laqués, linge).
+  if (nom[0] === '#') return (matsMeuble[nom] = new THREE.MeshStandardMaterial({ color: nom, roughness: 0.8 }));
   const bois = (couleur) => new THREE.MeshStandardMaterial({ color: couleur, map: veinage(), roughness: 0.6 });
   const defs = {
     chene: () => bois('#c99a63'), cheneFonce: () => bois('#8f6a47'), teck: () => bois('#c9904f'), lattes: () => bois('#7a5536'),
+    pin: () => bois('#d6a86c'), boisClair: () => bois('#dcc19a'), boisFonce: () => bois('#5e4330'),
+    noir: () => new THREE.MeshStandardMaterial({ color: '#1d1d1f', roughness: 0.5 }),
+    inox: () => new THREE.MeshStandardMaterial({ color: '#b9bcbf', roughness: 0.3, metalness: 0.7 }),
+    miroir: () => new THREE.MeshStandardMaterial({ color: '#dfe7ea', roughness: 0.05, metalness: 0.9 }),
+    ombre: () => new THREE.MeshStandardMaterial({ color: '#4a4640', roughness: 1 }),
+    ecran: () => new THREE.MeshStandardMaterial({ color: '#0d0f12', roughness: 0.2, metalness: 0.3 }),
+    porcelaine: () => new THREE.MeshStandardMaterial({ color: '#fbfbf9', roughness: 0.2 }),
+    gris: () => new THREE.MeshStandardMaterial({ color: '#8a8d90', roughness: 0.6 }),
     blanc: () => new THREE.MeshStandardMaterial({ color: '#f3f1ea', roughness: 0.55 }),
     metalNoir: () => new THREE.MeshStandardMaterial({ color: '#1e1f21', roughness: 0.45, metalness: 0.4 }),
     metalBlanc: () => new THREE.MeshStandardMaterial({ color: '#f1f1ee', roughness: 0.4, metalness: 0.2 }),
@@ -704,6 +725,173 @@ const MODELES = {
       piece3d(g, 8, 2, 1.5, x, 74, 22.6, 'poignee');
     }
   } },
+
+  // ----- Kit paramétrique : chaque meuble de la vidéo est un « ordre » d'une ligne
+  // (maison.js, ORDRES) qui donne le modèle, la place et les cotes l × p × h (cm). -----
+
+  // Caisson : corps plein et façades rangées du bas vers le haut. rangs = « T3:20,P2 » :
+  // lettre (P porte, T tiroir, V vitrée, M miroir, C coulissante, O niche ouverte),
+  // nombre de cases, hauteur (le dernier rang prend le reste). pieds = hauteur des pieds.
+  caisson: { construire(g, o) {
+    const { l, p, h } = o, m = o.mat || 'blanc', pz = o.pieds || 0, z = p / 2;
+    piece3d(g, l, h - pz, p, 0, pz + (h - pz) / 2, 0, m);
+    if (pz) for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 3, pz, 3, sx * (l / 2 - 4), pz / 2, sz * (z - 4), o.matPieds || m);
+    let y = pz;
+    const rangs = String(o.rangs || 'P2').split(',');
+    rangs.forEach((r, i) => {
+      // « P2 » = 2 portes ; « MP » = une case miroir puis une case porte.
+      const lettres = r.match(/^[A-Z]+/)[0], hr = i === rangs.length - 1 ? h - y : +r.split(':')[1];
+      const n = lettres.length > 1 ? lettres.length : parseInt(r.slice(1)) || 1, lw = l / n;
+      for (let k = 0; k < n; k++) {
+        const t = lettres[Math.min(k, lettres.length - 1)];
+        const x = -l / 2 + lw * (k + 0.5), yc = y + hr / 2;
+        if (t === 'O') {
+          // Niche : fond sombre en retrait et tablette au milieu si la niche est haute.
+          piece3d(g, lw - 3, hr - 3, 0.4, x, yc, z + 0.05, 'ombre');
+          if (hr > 45) piece3d(g, lw - 3, 1.8, 0.6, x, yc, z + 0.2, m);
+          continue;
+        }
+        piece3d(g, 0.5, hr, 0.5, x - lw / 2 + 0.25, yc, z + 0.1, 'joint');
+        piece3d(g, lw, 0.5, 0.5, x, y + 0.25, z + 0.1, 'joint');
+        if (t === 'V') piece3d(g, lw - 8, hr - 8, 0.4, x, yc, z + 0.15, 'vitre');
+        if (t === 'M') piece3d(g, lw - 8, hr - 10, 0.4, x, yc, z + 0.2, 'miroir');
+        if (t === 'T') piece3d(g, Math.min(14, lw / 3), 1.2, 1.5, x, y + hr - 4, z + 0.7, o.poignee || 'poignee');
+        if (t === 'P' || t === 'V' || t === 'M') {
+          const cote = n === 1 ? 1 : k < n / 2 ? 1 : -1;
+          piece3d(g, 1.2, Math.min(14, hr / 3), 1.5, x + cote * (lw / 2 - 4), yc, z + 0.7, o.poignee || 'poignee');
+        }
+      }
+      y += hr;
+    });
+    piece3d(g, 0.5, h - pz, 0.5, l / 2 - 0.25, pz + (h - pz) / 2, z + 0.1, 'joint');
+  } },
+  // Lit : sommier, matelas, couette (linge) sur les deux tiers, oreillers ; tete = tête de lit.
+  lit: { construire(g, o) {
+    const { l, p } = o, h = o.h || 45, m = o.mat || 'blanc';
+    piece3d(g, l, h - 20, p, 0, (h - 20) / 2, 0, m);
+    piece3d(g, l - 2, 20, p - 2, 0, h - 10, 0, '#f4f2ee');
+    piece3d(g, l + 3, 5, p * 0.7, 0, h + 1, p * 0.15, o.linge || '#e9e9e6');
+    for (const x of l > 110 ? [-l / 4, l / 4] : [0]) piece3d(g, l > 110 ? l / 2 - 10 : l - 20, 12, 35, x, h + 6, -p / 2 + 22, o.oreiller || '#f6f5f2');
+    if (o.tete) piece3d(g, l + 4, o.tete, 6, 0, o.tete / 2, -p / 2 - 3, m);
+  } },
+  // Canapé : assise, dossier, accoudoirs ; meridienne = g ou d (longueur totale lm).
+  canape: { construire(g, o) {
+    const { l, p } = o, h = o.h || 85, c = o.couleur || '#8e9196';
+    piece3d(g, l, 42, p, 0, 21, 0, c);
+    piece3d(g, l, h, 22, 0, h / 2, -p / 2 + 11, c);
+    for (const s of [-1, 1]) piece3d(g, 20, 62, p, s * (l / 2 - 10), 31, 0, c);
+    for (let k = 1; k < 3; k++) piece3d(g, 0.6, 14, p - 24, -l / 2 + 20 + k * (l - 40) / 3, 42, 10, 'ombre');
+    if (o.meridienne) {
+      const s = o.meridienne === 'g' ? -1 : 1, lm = o.lm || 160, lw = o.lmLarg || 85;
+      piece3d(g, lw, 42, lm - p, s * (l / 2 - lw / 2), 21, p / 2 + (lm - p) / 2, c);
+      piece3d(g, 20, 62, lm - p, s * (l / 2 - 10), 31, p / 2 + (lm - p) / 2, c);
+    }
+  } },
+  // Pouf rond ou table basse ronde.
+  pouf: { construire(g, o) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(M(o.l) / 2, M(o.l) / 2, M(o.h), 28), matMeuble(o.couleur || o.mat || 'gris'));
+    m.position.y = M(o.h) / 2;
+    g.add(m);
+  } },
+  // Bureau : plateau, pieds (mat) ou caissons ; retour « d60 » = retour d'angle de 60 cm
+  // à droite ; ecrans = nombre d'écrans posés au fond.
+  bureau: { construire(g, o) {
+    const { l, p } = o, h = o.h || 74, m = o.mat || 'boisClair';
+    piece3d(g, l, 2.5, p, 0, h - 1.25, 0, m);
+    if (o.caissons) for (const s of [-1, 1]) piece3d(g, 40, h - 2.5, p - 4, s * (l / 2 - 21), (h - 2.5) / 2, 0, o.caissons);
+    else for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 4, h - 2.5, 4, sx * (l / 2 - 5), (h - 2.5) / 2, sz * (p / 2 - 5), o.pied || 'metalNoir');
+    if (o.retour) {
+      const s = o.retour[0] === 'g' ? -1 : 1, lr = +o.retour.slice(1);
+      piece3d(g, 60, 2.5, lr, s * (l / 2 - 30), h - 1.25, p / 2 + lr / 2, m);
+      piece3d(g, 4, h - 2.5, 4, s * (l / 2 - 5), (h - 2.5) / 2, p / 2 + lr - 5, o.pied || 'metalNoir');
+    }
+    const n = o.ecrans || 0;
+    for (let k = 0; k < n; k++) {
+      const x = (k - (n - 1) / 2) * 58;
+      piece3d(g, 55, 33, 2, x, h + 24, -p / 2 + 14, 'ecran');
+      piece3d(g, 4, 8, 4, x, h + 4, -p / 2 + 12, 'noir');
+    }
+  } },
+  // Chaise de bureau pivotante : piètement en étoile, vérin, assise et dossier.
+  chaiseBureau: { construire(g, o) {
+    const c = o.couleur || '#f2f2f0';
+    for (let k = 0; k < 5; k++) {
+      const b = piece3d(g, 30, 3, 4, 0, 6, 0, o.pied || 'gris');
+      b.rotation.y = k * Math.PI * 2 / 5;
+      b.position.set(Math.cos(k * 1.2566) * M(15), M(6), -Math.sin(k * 1.2566) * M(15));
+    }
+    piece3d(g, 5, 38, 5, 0, 25, 0, o.pied || 'gris');
+    piece3d(g, 46, 7, 46, 0, 47, 0, c);
+    piece3d(g, 44, 45, 5, 0, 75, -22, c, -0.1);
+  } },
+  // Tapis : simple épaisseur au sol, ne gêne pas la marche.
+  tapis: { construire(g, o) { piece3d(g, o.l, 1.2, o.p, 0, 0.6, 0, o.couleur || '#9a9a98'); } },
+  // Table basse : plateau et 4 pieds.
+  tableBasse: { construire(g, o) {
+    const { l, p } = o, h = o.h || 42, m = o.mat || 'boisClair';
+    piece3d(g, l, 4, p, 0, h - 2, 0, m);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 5, h - 4, 5, sx * (l / 2 - 5), (h - 4) / 2, sz * (p / 2 - 5), m);
+  } },
+  // Poêle à granulés noir, vitre devant, conduit jusqu'au plafond (conduit = longueur).
+  poele: { construire(g, o) {
+    const { l, p, h } = o;
+    piece3d(g, l, h, p, 0, h / 2, 0, 'noir');
+    piece3d(g, l - 14, h * 0.35, 0.5, 0, h * 0.55, p / 2 + 0.2, 'ecran');
+    const tuyau = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, M(o.conduit || 160), 16), matMeuble('noir'));
+    tuyau.position.set(0, M(h + (o.conduit || 160) / 2), -M(p / 4));
+    g.add(tuyau);
+  } },
+  // Écran plat (télévision, tableau, miroir, cadre) : panneau mince, posé à z cm du sol.
+  panneau: { construire(g, o) {
+    piece3d(g, o.l, o.h, o.p || 3, 0, o.h / 2, 0, o.mat || 'ecran');
+    if (o.cadre) piece3d(g, o.l - 2 * o.cadre, o.h - 2 * o.cadre, 0.4, 0, o.h / 2, (o.p || 3) / 2 + 0.1, o.fond || '#f4f2ee');
+    if (o.pied) piece3d(g, o.l / 3, o.pied, 20, 0, -o.pied / 2, 0, 'noir');
+  } },
+  // Enceinte colonne.
+  enceinte: { construire(g, o) {
+    piece3d(g, o.l, o.h, o.p, 0, o.h / 2, 0, o.mat || 'noir');
+    piece3d(g, o.l - 4, o.h - 20, 0.4, 0, o.h / 2 + 4, o.p / 2 + 0.1, 'gris');
+  } },
+  // Piano numérique sur pied en X : caisse, touches blanches et noires.
+  piano: { construire(g, o) {
+    const { l, p } = o, h = o.h || 75;
+    piece3d(g, l, 12, p, 0, h + 6, 0, o.mat || '#d9dadb');
+    piece3d(g, l - 12, 2, 15, 0, h + 12.5, p / 2 - 8, 'porcelaine');
+    for (let x = -l / 2 + 10; x < l / 2 - 10; x += 2.4 * 7 / 5) piece3d(g, 1.1, 1.2, 9, x, h + 14, p / 2 - 11, 'noir');
+    for (const s of [-1, 1]) for (const r of [0.55, -0.55]) piece3d(g, 3, h * 1.15, 3, s * (l / 2 - 25), h / 2, 0, 'noir', 0, r);
+  } },
+  // Baignoire : coque blanche, fond creusé (plus clair).
+  baignoire: { construire(g, o) {
+    const { l, p } = o, h = o.h || 56;
+    piece3d(g, l, h, p, 0, h / 2, 0, 'porcelaine');
+    piece3d(g, l - 14, 1, p - 14, 0, h + 0.1, 0, '#e3eaed');
+  } },
+  // Meuble double vasque : caisson à tiroirs (mat), plan en chêne, vasques à poser.
+  vasques: { construire(g, o) {
+    const { l, p } = o, h = o.h || 85;
+    MODELES.caisson.construire(g, { l, p, h: h - 3, mat: o.mat || 'gris', rangs: o.rangs || 'T2:40,T2', pieds: o.pieds });
+    piece3d(g, l + 1, 3, p + 1, 0, h - 1.5, 0, o.plan || 'chene');
+    for (const s of o.n === 1 ? [0] : [-1, 1]) {
+      const v = new THREE.Mesh(new THREE.CylinderGeometry(M(20), M(16), M(14), 28), matMeuble('porcelaine'));
+      v.position.set(M(s * l / 4), M(h + 7), 0);
+      g.add(v);
+    }
+  } },
+  // WC : cuvette, réservoir, abattant (couleur).
+  wc: { construire(g, o) {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(M(19), M(13), M(40), 24), matMeuble('porcelaine'));
+    c.position.set(0, M(20), M(8));
+    c.scale.z = 1.4;
+    g.add(c);
+    piece3d(g, 38, 38, 18, 0, 59, -22, 'porcelaine');
+    piece3d(g, 38, 2.5, 48, 0, 41, 8, o.couleur || 'porcelaine');
+  } },
+  // Suspension boule (plumes, papier) : sphère accrochée au plafond (z = bas de la boule).
+  suspension: { construire(g, o) {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(M(o.l) / 2, 24, 16), new THREE.MeshStandardMaterial({ color: '#fbf8f2', emissive: '#4a4236', roughness: 1 }));
+    b.position.y = M(o.l) / 2;
+    g.add(b);
+  } },
 };
 function construireMeuble(o) {
   const pos = positionsMeubles[o.id];
@@ -711,19 +899,24 @@ function construireMeuble(o) {
   MODELES[o.modele].construire(g, o);
   g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   g.userData = { phase: o.phase, meuble: o, x: pos?.x ?? o.x, y: pos?.y ?? o.y, angle: pos?.angle ?? o.angle ?? 0 };
+  if (o.niveau) g.userData.niveau = 1;
+  // Emprise au sol mesurée sur le meuble construit (méridienne, retour de bureau compris).
+  const boite = new THREE.Box3().setFromObject(g), c = boite.getCenter(new THREE.Vector3());
+  g.userData.decale = { x: c.x, z: c.z };
   scene.add(g);
   elements.push(g);
   meubles.push(g);
-  const mod = MODELES[o.modele];
-  g.userData.obstacle = { cx: 0, cz: 0, angle: 0, hl: M(mod.l) / 2, he: M(mod.p) / 2, phase: o.phase };
+  // Tapis, cadres, suspensions et meubles posés en hauteur ne gênent pas la marche.
+  g.userData.obstacle = { cx: 0, cz: 0, angle: 0, hl: o.libre || o.z ? 0 : (boite.max.x - boite.min.x) / 2, he: o.libre || o.z ? 0 : (boite.max.z - boite.min.z) / 2, phase: o.phase, niveau: o.niveau ? 1 : 0 };
   obstacles.push(g.userData.obstacle);
   placerMeuble(g);
 }
 function placerMeuble(g) {
-  const { x, y, angle } = g.userData, a = angle * Math.PI / 180;
-  g.position.set(M(x), 0, -M(y));
+  const { x, y, angle, meuble: o, decale: d } = g.userData, a = angle * Math.PI / 180;
+  g.position.set(M(x), (o.niveau ? BASE_ETAGE : 0) + M(o.z || 0), -M(y));
   g.rotation.y = a;
-  Object.assign(g.userData.obstacle, { cx: M(x), cz: -M(y), angle: a });
+  const cos = Math.cos(a), sin = Math.sin(a);
+  Object.assign(g.userData.obstacle, { cx: M(x) + d.x * cos + d.z * sin, cz: -M(y) - d.x * sin + d.z * cos, angle: a });
 }
 for (const o of objets) if (o.type === 'meuble') construireMeuble(o);
 
@@ -1264,6 +1457,7 @@ rendu.domElement.addEventListener('pointerdown', e => {
   let g = touche.object;
   while (!meubles.includes(g)) g = g.parent;
   choisirMeuble(g);
+  solPlan.constant = -g.position.y; // glisse au niveau du meuble (RDC ou étage)
   rayonMeuble.ray.intersectPlane(solPlan, surSol);
   glisse = { id: e.pointerId, dx: g.position.x - surSol.x, dz: g.position.z - surSol.z };
   orbite.enabled = false;
