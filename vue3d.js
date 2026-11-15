@@ -92,6 +92,8 @@ const matCrepiPignon = new THREE.MeshStandardMaterial({ color: '#ece8df', roughn
 const matArdoise = new THREE.MeshStandardMaterial({ color: '#5d636b', roughness: 0.7, side: THREE.DoubleSide });
 // Volets : bleu plus doux que sur la photo de 2008 (dit par l'utilisateur), à recaler sur photo.
 const matVolet = new THREE.MeshStandardMaterial({ color: '#5f7a96', roughness: 0.6 });
+const peintures = {};
+const materiauPeinture = couleur => (peintures[couleur] ??= new THREE.MeshStandardMaterial({ color: couleur, roughness: 0.92 }));
 // UV d'une boîte à l'échelle réelle (une image = « echelle » mètres), sans rotation.
 function uvEchelle(geo, l, h, p, echelle) {
   const uv = geo.attributes.uv, tailles = [[p, h], [p, h], [l, p], [l, p], [l, h], [l, h]];
@@ -123,6 +125,36 @@ function construireMur(m) {
   }
   const faceExterieure = plus === moins ? -1 : plus > moins ? 5 : 4;
 
+  // Peinture : une fine couche posée 3 mm devant chaque face qui donne sur une pièce
+  // peinte (pièce.peinture, ou pièce.peintureMurs[id du mur]), limitée à la portion du
+  // mur qui borde vraiment la pièce. Elle a la phase de la pièce (couleurs « après »).
+  const peindre = (s, e, z0, z1) => {
+    for (const cote of [1, -1]) {
+      const nx = uy * cote, ny = -ux * cote, ecart = m.ep / 2 + 10;
+      for (const p of pieces) {
+        if (!p.peinture || (p.phase && m.phase && p.phase !== m.phase)) continue;
+        const couleur = p.peintureMurs?.[m.id] || p.peinture;
+        // Portions du mur (pas de 5 cm) dont le devant tombe dans la pièce.
+        let debut = null;
+        for (let u = s; u <= e + 0.01; u += Math.min(5, Math.max(e - s, 0.5))) {
+          const ici = u <= e && dans(p.poly, ax + ux * u + nx * ecart, ay + uy * u + ny * ecart);
+          if (ici && debut === null) debut = u;
+          if ((!ici || u + 5 > e + 0.01) && debut !== null) {
+            const fin = ici ? e : Math.min(e, u);
+            if (fin - debut > 1) {
+              const couche = new THREE.Mesh(new THREE.PlaneGeometry(M(fin - debut), z1 - z0), materiauPeinture(couleur));
+              const mil = (debut + fin) / 2, d = m.ep / 2 + 0.3;
+              couche.position.set(M(ax + ux * mil + nx * d), (z0 + z1) / 2, -M(ay + uy * mil + ny * d));
+              couche.rotation.y = angle + (cote === 1 ? 0 : Math.PI);
+              ajouter(couche, p.phase || m.phase, false);
+            }
+            debut = null;
+          }
+        }
+      }
+    }
+  };
+
   // Un pavé du mur entre s et e (cm, le long du mur), de z0 à z1 (m).
   const pave = (s, e, z0, z1, materiau = matMur, bloque = true) => {
     if (e - s < 0.5 || z1 - z0 < 0.005) return;
@@ -139,6 +171,7 @@ function construireMur(m) {
     mesh.position.set(M(ax + ux * milieu), (z0 + z1) / 2, -M(ay + uy * milieu));
     mesh.rotation.y = angle;
     ajouter(mesh, m.phase, materiau !== matVitre);
+    if (materiau === matMur) peindre(s, e, z0, z1);
     if (materiau !== matVitre) piecesDeMur.push(mesh); // pour cacher les cotes derrière un mur
     // Bloque la marche s'il occupe la hauteur d'une personne.
     if (bloque && z0 < 1.2 && z1 > 0.3) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(e - s) / 2, he: Math.max(ep, 0.06) / 2, phase: m.phase });
@@ -200,8 +233,10 @@ const formeDe = poly => new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(M
 // Calepinages : un motif qui se répète, en cases de grille [x, y, largeur, hauteur].
 const MOTIFS = {
   // Carrelage actuel (photos) : carrés identiques posés droit, 4 × 4 pour varier les teintes.
+  // D'après la photo du sol (33 × 33) : blanc légèrement grisé, joints gris foncé, petits
+  // éclats sombres dans le carreau et le long des bords.
   carre: { cases: 4, rects: Array.from({ length: 16 }, (_, k) => [k % 4, Math.floor(k / 4), 1, 1]),
-    couleur: [242, 232, 212], joint: '#9c968c', mouchetis: 140 },
+    couleur: [232, 230, 224], ecart: 6, joint: '#5c5f60', largeurJoint: 3, mouchetis: 0, eclats: true },
   // Futur sol (provisoire, rien n'est choisi) : multi-formats façon carrelage ancien, grège.
   // Pose aléatoire sur 40 × 40 modules (8 m avec un module de 20 cm) : pas de motif
   // répété visible ni de centrage. Formats de 1 × 1 à 3 × 3 modules (20 à 60 cm).
@@ -296,6 +331,36 @@ function texteCarrelage(nom) {
       const n = Math.round(90 + (haut - 90) * Math.sin((k / bord) * Math.PI / 2));
       gr.fillStyle = `rgb(${n}, ${n}, ${n})`;
       gr.fillRect(x + k, y + k, w - 2 * k, hh - 2 * k);
+    }
+    if (m.eclats) {
+      // Voile plus clair ou plus gris, puis éclats sombres : quelques-uns dans le carreau,
+      // davantage en bordure (bords ébréchés).
+      for (let k = 0; k < 6; k++) {
+        const rx = x + hasard() * w, ry = y + hasard() * hh, rr = px * (0.15 + hasard() * 0.3);
+        const d = g.createRadialGradient(rx, ry, 0, rx, ry, rr);
+        d.addColorStop(0, hasard() < 0.5 ? 'rgba(205,203,198,0.07)' : 'rgba(250,250,247,0.08)');
+        d.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = d;
+        g.fillRect(x, y, w, hh);
+      }
+      const eclat = (ex, ey, taille) => {
+        g.fillStyle = `rgba(${55 + hasard() * 30},${55 + hasard() * 30},${55 + hasard() * 30},${0.6 + hasard() * 0.3})`;
+        g.beginPath();
+        for (let a = 0; a < 6; a++) {
+          const r = taille * (0.5 + hasard() * 0.7), t = a / 6 * 2 * Math.PI;
+          a ? g.lineTo(ex + Math.cos(t) * r, ey + Math.sin(t) * r) : g.moveTo(ex + Math.cos(t) * r, ey + Math.sin(t) * r);
+        }
+        g.fill();
+        gr.fillStyle = 'rgba(0,0,0,0.6)';
+        gr.beginPath(); gr.arc(ex, ey, taille, 0, 2 * Math.PI); gr.fill();
+      };
+      for (let k = 0; k < 5; k++) eclat(x + 4 + hasard() * (w - 8), y + 4 + hasard() * (hh - 8), 0.5 + hasard() * 0.8);
+      for (let k = 0; k < 10; k++) {
+        const bordH = hasard() < 0.5, loin = hasard() < 0.5;
+        const ex = bordH ? x + hasard() * w : (loin ? x + w - 1.5 : x + 1.5);
+        const ey = bordH ? (loin ? y + hh - 1.5 : y + 1.5) : y + hasard() * hh;
+        eclat(ex, ey, 0.6 + hasard() * 1.1);
+      }
     }
     if (m.ciment) dessinCiment(g, m, x, y, w, (i % 2) + 2 * (j % 2) === 0 ? 0 : (i % 2) && !(j % 2) ? 1 : (i % 2) && (j % 2) ? 2 : 3);
     // Usure : taches plus claires ou foncées, et creux dans le relief.
