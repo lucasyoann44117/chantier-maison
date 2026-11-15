@@ -675,9 +675,13 @@ const piecesEtage = etage ? etage.pieces.map(p => ({ ...p, niveau: 1 })) : [];
 const toit = etage?.toit;
 // Hauteur sous toit (cm, au-dessus du plancher de l'étage) en un point du plan.
 function hauteurToit(x, y) {
-  let h = Math.min(toit.plafond, toit.hSud + toit.pente * (y - toit.ySud), toit.hNord + toit.pente * (toit.yNord - y));
+  // Dans l'épaisseur d'un mur bas, on garde la hauteur de sa face intérieure : le
+  // haut du mur rejoint ainsi le rampant, sans jour.
+  const yc = Math.max(toit.ySud, Math.min(toit.yNord, y));
+  let h = Math.min(toit.plafond, toit.hSud + toit.pente * (yc - toit.ySud), toit.hNord + toit.pente * (toit.yNord - yc));
+  // Avancée : son propre rampant, du mur bas du fond jusqu'au plafond plat.
   const l = toit.lucarne;
-  if (l && x >= l.x0 - 4 && x <= l.x1 + 4 && y >= toit.yNord - (l.h - toit.hNord) / toit.pente) h = Math.max(h, l.h);
+  if (l && x >= l.x0 - 4 && x <= l.x1 + 4 && y <= l.yFond + 6) h = Math.max(h, Math.min(toit.plafond, l.hFond + toit.pente * (l.yFond - Math.min(y, l.yFond))));
   return Math.max(h, 0);
 }
 function ajouterEtage(mesh, extra = {}) {
@@ -755,9 +759,13 @@ if (etage) {
   const morceauxNord = l ? [[xo, l.x0], [l.x1, xe]] : [[xo, xe]];
   for (const [a, b] of morceauxNord) surfaceToit([[a, yn, hNord], [b, yn, hNord], [b, yn2, hp], [a, yn2, hp]]);
   if (l) {
-    const yl = yn - (l.h - hNord) / pente;
-    surfaceToit([[l.x0, yl, l.h], [l.x1, yl, l.h], [l.x1, yn2, hp], [l.x0, yn2, hp]]);
-    surfaceToit([[l.x0, l.yFond, l.h], [l.x1, l.yFond, l.h], [l.x1, yl, l.h], [l.x0, yl, l.h]]);
+    // Rampant de l'avancée, plafond plat jusqu'au plafond général, et jouée côté est
+    // (triangle entre les deux rampants ; côté ouest, la cloison de la chambre 3 la ferme).
+    const yHaut = l.yFond - (hp - l.hFond) / pente;
+    surfaceToit([[l.x0, l.yFond, l.hFond], [l.x1, l.yFond, l.hFond], [l.x1, yHaut, hp], [l.x0, yHaut, hp]]);
+    if (yHaut > yn2) surfaceToit([[l.x0, yHaut, hp], [l.x1, yHaut, hp], [l.x1, yn2, hp], [l.x0, yn2, hp]]);
+    // Jouée : du mur bas jusqu'au plafond plat, entre le rampant principal et celui de l'avancée.
+    surfaceToit([[l.x1, yn, hNord], [l.x1, yn, Math.min(hp, l.hFond + pente * (l.yFond - yn))], [l.x1, Math.min(yHaut, yn), hp], [l.x1, yn2, hp]]);
   }
   // Fenêtres de toit : posées 1 cm sous le rampant.
   for (const f of etage.fenetresToit || []) {
