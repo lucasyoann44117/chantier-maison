@@ -117,6 +117,7 @@ murs.forEach(construireMur);
 
 // ---------- Sols, plafonds, objets ----------
 
+let texteVeinage; // veinage du chêne, créé au premier meuble qui en a besoin
 const formeDe = poly => new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(M(x), M(y))));
 
 // Calepinages : un motif qui se répète, en cases de grille [x, y, largeur, hauteur].
@@ -282,7 +283,12 @@ for (const o of objets) {
   else if (o.type === 'tabouret') tabouret(o);
   else {
     const h = M(o.h);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(M(o.l), h, M(o.p)), new THREE.MeshStandardMaterial({ color: o.couleur, roughness: 0.7 }));
+    const mat = o.matiere === 'chene'
+      ? new THREE.MeshStandardMaterial({ color: o.couleur, map: veinage(), roughness: 0.65 })
+      : new THREE.MeshStandardMaterial({ color: o.couleur, roughness: 0.7 });
+    const geo = new THREE.BoxGeometry(M(o.l), h, M(o.p));
+    if (o.matiere === 'chene') uvBois(geo, M(o.l), h, M(o.p));
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(M(o.x + o.l / 2), M(o.z || 0) + h / 2, -M(o.y + o.p / 2));
     // angle (degrés) : tourne l'objet sur lui-même, pour suivre un mur en biais.
     const angle = (o.angle || 0) * Math.PI / 180;
@@ -290,6 +296,57 @@ for (const o of objets) {
     ajouter(mesh, o.phase);
     if (!o.z) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(o.l) / 2, he: M(o.p) / 2, phase: o.phase });
   }
+}
+
+// Veinage de chêne clair (gris sur blanc, multiplié par la couleur du meuble) :
+// fils fins et ondulés, quelques nœuds. Une seule image pour tous les meubles.
+function veinage() {
+  if (texteVeinage) return texteVeinage;
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 512, 512);
+  let graine = 11;
+  const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
+  for (let k = 0; k < 170; k++) {
+    const x0 = hasard() * 512, amp = 2 + hasard() * 6, per = 80 + hasard() * 200, ph = hasard() * 6.3;
+    g.strokeStyle = `rgba(120, 90, 50, ${0.05 + hasard() * 0.12})`;
+    g.lineWidth = 0.6 + hasard() * 1.8;
+    g.beginPath();
+    for (let y = 0; y <= 512; y += 8) {
+      const x = x0 + amp * Math.sin(y / per * 6.28 + ph);
+      y ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+  for (let k = 0; k < 4; k++) {
+    const x = hasard() * 512, y = hasard() * 512;
+    g.strokeStyle = 'rgba(110, 80, 45, 0.18)';
+    for (let r = 2; r < 12; r += 3) { g.beginPath(); g.ellipse(x, y, r * 0.6, r * 1.8, 0, 0, 6.3); g.stroke(); }
+  }
+  texteVeinage = new THREE.CanvasTexture(c);
+  texteVeinage.wrapS = texteVeinage.wrapT = THREE.RepeatWrapping;
+  texteVeinage.colorSpace = THREE.SRGBColorSpace;
+  texteVeinage.anisotropy = rendu.capabilities.getMaxAnisotropy();
+  return texteVeinage;
+}
+
+// UV d'une boîte à l'échelle réelle (une image de veinage = 80 cm), pour que le bois
+// ne soit pas étiré. Le fil suit la plus grande longueur de chaque face (vertical sur
+// les colonnes, en long sur les plans de travail, la crédence et les meubles hauts).
+function uvBois(geo, l, h, p) {
+  const uv = geo.attributes.uv, echelle = 0.8;
+  // Ordre des faces d'une BoxGeometry : +x, -x, +y, -y, +z, -z (4 sommets chacune).
+  const tailles = [[p, h], [p, h], [l, p], [l, p], [l, h], [l, h]];
+  for (let f = 0; f < 6; f++) {
+    const [tu, tv] = tailles[f], tourner = tu > tv;
+    for (let k = f * 4; k < f * 4 + 4; k++) {
+      const u = uv.getX(k) * tu / echelle, v = uv.getY(k) * tv / echelle;
+      tourner ? uv.setXY(k, v, u) : uv.setXY(k, u, v);
+    }
+  }
+  uv.needsUpdate = true;
 }
 
 // Tabouret de bar : assise ronde rembourrée, petit dossier, 4 pieds fins et repose-pieds.
