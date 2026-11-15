@@ -132,6 +132,12 @@ const MOTIFS = {
   multiformat: { cases: 40, px: 32, centre: false, relief: 3, ecart: 22, largeurJoint: 1,
     formats: [[1, 1, 1], [2, 1, 2], [1, 2, 2], [2, 2, 3], [3, 2, 3], [2, 3, 3], [3, 3, 2]],
     couleur: [196, 188, 175], joint: '#cfc9bf', mouchetis: 6 },
+  // Roma Celio (Concept Mosaïque) : opus romain effet travertin, gris nuancé, finition douce.
+  // Formats réels sur un module de 20,3 cm : 20,3 × 20,3, 20,3 × 40,6, 40,6 × 40,6, 40,6 × 60,9.
+  // Teinte relevée sur la photo du fabricant (gris-beige chaud).
+  romaCelio: { cases: 40, px: 32, centre: false, relief: 1.6, ecart: 14, largeurJoint: 1, travertin: true,
+    formats: [[1, 1, 1], [2, 1, 1], [1, 2, 1], [2, 2, 2], [3, 2, 2], [2, 3, 2]],
+    couleur: [194, 182, 164], joint: '#d3ccc0', mouchetis: 5 },
 };
 
 // Remplit la grille au hasard : à chaque case libre, un format tiré au sort
@@ -195,6 +201,18 @@ function texteCarrelage(nom) {
       };
       tache(g, hasard() < 0.5 ? '120,110,95' : '250,245,235', 0.14);
       tache(gr, hasard() < 0.6 ? '0,0,0' : '255,255,255', 0.15);
+    }
+    // Travertin : petits pores allongés dans le sens de la veine, plus foncés et creux.
+    if (m.travertin) {
+      const sens = hasard() < 0.5;
+      for (let k = 0; k < 2 * l * h; k++) {
+        const lg = 2 + hasard() * px * 0.12, px0 = x + 1 + hasard() * (w - lg - 2), py0 = y + 1 + hasard() * (hh - lg - 2);
+        const [lw, lh] = sens ? [lg, 1] : [1, lg];
+        g.fillStyle = 'rgba(125,110,90,0.18)';
+        g.fillRect(px0, py0, lw, lh);
+        gr.fillStyle = 'rgba(0,0,0,0.25)';
+        gr.fillRect(px0, py0, lw, lh);
+      }
     }
     for (let k = 0; k < m.mouchetis * l * h; k++) {
       const sombre = hasard() < 0.5, mx = x + 1 + hasard() * (w - 2), my = y + 1 + hasard() * (hh - 2);
