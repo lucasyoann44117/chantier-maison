@@ -128,9 +128,10 @@ const MOTIFS = {
   // Pose aléatoire sur 40 × 40 modules (8 m avec un module de 20 cm) : pas de motif
   // répété visible ni de centrage. Formats de 1 × 1 à 3 × 3 modules (20 à 60 cm).
   // relief : force du relief (carrelage ancien : joints creux, bords arrondis, usure).
-  multiformat: { cases: 40, px: 32, centre: false, relief: 3, ecart: 22,
+  // Joint fin : 1 pixel pour 20 cm, soit environ 6 mm.
+  multiformat: { cases: 40, px: 32, centre: false, relief: 3, ecart: 22, largeurJoint: 1,
     formats: [[1, 1, 1], [2, 1, 2], [1, 2, 2], [2, 2, 3], [3, 2, 3], [2, 3, 3], [3, 3, 2]],
-    couleur: [196, 188, 175], joint: '#d9d4cb', mouchetis: 6 },
+    couleur: [196, 188, 175], joint: '#cfc9bf', mouchetis: 6 },
 };
 
 // Remplit la grille au hasard : à chaque case libre, un format tiré au sort
@@ -166,10 +167,12 @@ function texteCarrelage(nom) {
   gr.fillRect(0, 0, taille, taille);
   let graine = 7;
   const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
-  const joint = px >= 64 ? 2 : 1, ecart = m.ecart || 12, bord = m.relief ? Math.max(2, Math.round(px / 10)) : 1;
+  // largeurJoint : largeur totale du joint en pixels de la texture.
+  const joint = px >= 64 ? 2 : 1, ecart = m.ecart || 12, bord = m.relief ? 2 : 1;
+  const lj = m.largeurJoint ?? 2 * joint, dj = Math.floor(lj / 2);
   for (const [i, j, l, h] of m.rects || poseAleatoire(m, hasard)) {
     const v = Math.round(hasard() * ecart - ecart / 2), [r, v2, b] = m.couleur;
-    const x = i * px + joint, y = j * px + joint, w = l * px - 2 * joint, hh = h * px - 2 * joint;
+    const x = i * px + dj, y = j * px + dj, w = l * px - lj, hh = h * px - lj;
     g.fillStyle = `rgb(${r + v}, ${v2 + v}, ${b + v})`;
     g.fillRect(x, y, w, hh);
     // Relief : bords arrondis (dégradé vers le joint), chaque carreau un peu plus haut ou bas.
