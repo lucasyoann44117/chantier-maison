@@ -281,6 +281,35 @@ for (const p of pieces) {
   plafonds.push(plafond);
 }
 
+// Pièces de part et d'autre d'une ouverture (à une demi-épaisseur de mur + 15 cm).
+function piecesAutour(m, o) {
+  const [ax, ay] = m.a, [bx, by] = m.b, lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
+  const mx = ax + ux * (o.pos + o.largeur / 2), my = ay + uy * (o.pos + o.largeur / 2), d = m.ep / 2 + 15;
+  return pieces.filter(p => (!p.phase || !m.phase || p.phase === m.phase) &&
+    (dans(p.poly, mx - uy * d, my + ux * d) || dans(p.poly, mx + uy * d, my - ux * d)));
+}
+
+// Sol continu sous les portes et les passages entre deux pièces (pas de seuil) :
+// sans ça, on voit l'herbe dans l'épaisseur du mur. Même sol que la première pièce.
+for (const m of murs) for (const o of m.ouvertures || []) {
+  if (o.type === 'fenetre' || o.allege > 0) continue;
+  const lieux = piecesAutour(m, o);
+  if (lieux.length < 2) continue;
+  const [ax, ay] = m.a, [bx, by] = m.b, lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
+  const e = m.ep / 2 + 1, s0 = o.pos, s1 = o.pos + o.largeur;
+  const coin = (s, d) => [ax + ux * s - uy * d, ay + uy * s + ux * d];
+  const geo = new THREE.ShapeGeometry(formeDe([coin(s0, -e), coin(s1, -e), coin(s1, e), coin(s0, e)]));
+  geo.rotateX(-Math.PI / 2);
+  const p = lieux[0];
+  const deuxSols = !p.phase && (p.carrelageAvant || p.carrelageApres);
+  const phases = m.phase ? [m.phase] : p.phase ? [p.phase] : deuxSols ? ['avant', 'apres'] : [undefined];
+  for (const ph of phases) {
+    const raccord = new THREE.Mesh(geo, materiauSol(p, ph));
+    raccord.position.y = 0.0012;
+    ajouter(raccord, ph, false);
+  }
+}
+
 // ---------- Éclairage intérieur (bouton Lumière) ----------
 // Un spot au plafond au centre de chaque pièce, ou aux points « lampes » de la pièce.
 // Lumière sans ombres portées pour rester fluide sur téléphone.
@@ -597,10 +626,7 @@ for (const p of pieces) {
 const liens = [];
 for (const m of murs) for (const o of m.ouvertures || []) {
   const [ax, ay] = m.a, [bx, by] = m.b, lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
-  // Pièces de part et d'autre de l'ouverture.
-  const mx = ax + ux * (o.pos + o.largeur / 2), my = ay + uy * (o.pos + o.largeur / 2), d = m.ep / 2 + 15;
-  const lieux = pieces.filter(p => (!p.phase || !m.phase || p.phase === m.phase) &&
-    (dans(p.poly, mx - uy * d, my + ux * d) || dans(p.poly, mx + uy * d, my - ux * d)));
+  const lieux = piecesAutour(m, o);
   if ((o.type === 'passage' || o.type === 'arche') && lieux.length === 2) liens.push({ a: lieux[0], b: lieux[1], phase: m.phase });
   coter([ax + ux * o.pos, ay + uy * o.pos], [ax + ux * (o.pos + o.largeur), ay + uy * (o.pos + o.largeur)],
     H + 0.03, `↔ ${enMetres(o.largeur)}`, m.phase, 'cote ouverture', lieux);
