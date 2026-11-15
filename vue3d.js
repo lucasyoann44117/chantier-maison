@@ -124,31 +124,52 @@ const MOTIFS = {
   // Carrelage actuel (photos) : carrés identiques posés droit, 4 × 4 pour varier les teintes.
   carre: { cases: 4, rects: Array.from({ length: 16 }, (_, k) => [k % 4, Math.floor(k / 4), 1, 1]),
     couleur: [242, 232, 212], joint: '#9c968c', mouchetis: 140 },
-  // Futur sol (provisoire, rien n'est choisi) : multi-formats façon carrelage ancien,
-  // carrés et rectangles de 1 × 1 à 3 × 2 modules (20 à 60 cm avec un module de 20), grège.
-  multiformat: { cases: 6, rects: [
-    [0, 0, 3, 2], [3, 0, 2, 2], [5, 0, 1, 2],
-    [0, 2, 2, 2], [2, 2, 1, 1], [2, 3, 1, 1], [3, 2, 3, 2],
-    [0, 4, 1, 2], [1, 4, 2, 2], [3, 4, 3, 2]],
-    couleur: [196, 188, 175], joint: '#d9d4cb', mouchetis: 40 },
+  // Futur sol (provisoire, rien n'est choisi) : multi-formats façon carrelage ancien, grège.
+  // Pose aléatoire sur 40 × 40 modules (8 m avec un module de 20 cm) : pas de motif
+  // répété visible ni de centrage. Formats de 1 × 1 à 3 × 3 modules (20 à 60 cm).
+  multiformat: { cases: 40, px: 24, centre: false,
+    formats: [[1, 1, 1], [2, 1, 2], [1, 2, 2], [2, 2, 3], [3, 2, 3], [2, 3, 3], [3, 3, 2]],
+    couleur: [196, 188, 175], joint: '#d9d4cb', mouchetis: 6 },
 };
 
+// Remplit la grille au hasard : à chaque case libre, un format tiré au sort
+// (selon son poids) parmi ceux qui tiennent sans chevaucher.
+function poseAleatoire(m, hasard) {
+  const n = m.cases, pris = Array.from({ length: n }, () => new Array(n).fill(false)), rects = [];
+  const libre = (i, j, l, h) => {
+    if (i + l > n || j + h > n) return false;
+    for (let a = i; a < i + l; a++) for (let b = j; b < j + h; b++) if (pris[b][a]) return false;
+    return true;
+  };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    if (pris[j][i]) continue;
+    const possibles = m.formats.filter(([l, h]) => libre(i, j, l, h));
+    let t = hasard() * possibles.reduce((s, f) => s + f[2], 0), choix = possibles[0];
+    for (const f of possibles) { t -= f[2]; if (t <= 0) { choix = f; break; } }
+    const [l, h] = choix;
+    for (let a = i; a < i + l; a++) for (let b = j; b < j + h; b++) pris[b][a] = true;
+    rects.push([i, j, l, h]);
+  }
+  return rects;
+}
+
 function texteCarrelage(nom) {
-  const m = MOTIFS[nom], px = 96, c = document.createElement('canvas');
+  const m = MOTIFS[nom], px = m.px || 96, c = document.createElement('canvas');
   c.width = c.height = px * m.cases;
   const g = c.getContext('2d');
   g.fillStyle = m.joint;
   g.fillRect(0, 0, c.width, c.height);
   let graine = 7;
   const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
-  for (const [i, j, l, h] of m.rects) {
+  const joint = px >= 64 ? 2 : 1;
+  for (const [i, j, l, h] of m.rects || poseAleatoire(m, hasard)) {
     const v = Math.round(hasard() * 12 - 6), [r, v2, b] = m.couleur;
-    const x = i * px + 2, y = j * px + 2, w = l * px - 4, hh = h * px - 4;
+    const x = i * px + joint, y = j * px + joint, w = l * px - 2 * joint, hh = h * px - 2 * joint;
     g.fillStyle = `rgb(${r + v}, ${v2 + v}, ${b + v})`;
     g.fillRect(x, y, w, hh);
     for (let k = 0; k < m.mouchetis * l * h; k++) {
       g.fillStyle = hasard() < 0.5 ? 'rgba(130,120,105,0.3)' : 'rgba(255,250,240,0.35)';
-      g.fillRect(x + 1 + hasard() * (w - 2), y + 1 + hasard() * (hh - 2), 2, 2);
+      g.fillRect(x + 1 + hasard() * (w - 2), y + 1 + hasard() * (hh - 2), joint, joint);
     }
   }
   const t = new THREE.CanvasTexture(c);
@@ -167,9 +188,11 @@ function materiauCarrelage(p, { motif, module }) {
   // Les UV d'une ShapeGeometry sont les coordonnées du plan, en mètres.
   const rep = 1 / (MOTIFS[motif].cases * M(module));
   t.repeat.set(rep, rep);
-  const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
-  const cx = M((Math.min(...xs) + Math.max(...xs)) / 2), cy = M((Math.min(...ys) + Math.max(...ys)) / 2);
-  t.offset.set(0.5 - cx * rep, 0.5 - cy * rep);
+  if (MOTIFS[motif].centre !== false) {
+    const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
+    const cx = M((Math.min(...xs) + Math.max(...xs)) / 2), cy = M((Math.min(...ys) + Math.max(...ys)) / 2);
+    t.offset.set(0.5 - cx * rep, 0.5 - cy * rep);
+  }
   return new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 });
 }
 
