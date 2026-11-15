@@ -4,7 +4,7 @@
 // Plan (x est, y nord, cm) → scène (X = x, Z = -y, en mètres).
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-const { HAUTEUR, murs, pieces, objets } = window.MAISON;
+const { HAUTEUR, murs, pieces, objets, etage } = window.MAISON;
 
 const M = v => v / 100;
 const H = M(HAUTEUR);
@@ -49,7 +49,9 @@ const matVitre = new THREE.MeshStandardMaterial({ color: '#a9cbe0', transparent:
 
 // Chaque élément garde sa phase pour le bouton Avant / Après.
 const elements = [];
-const obstacles = []; // rectangles au sol : { cx, cz, angle, hl, he, phase }
+const obstacles = []; // rectangles au sol : { cx, cz, angle, hl, he, phase, niveau (0 = RDC, 1 = étage) }
+let infoEscalier = null; // géométrie de l'escalier, pour monter en visite
+const BASE_ETAGE = etage ? M(etage.niveau) : 0;
 
 function ajouter(mesh, phase, ombre = true) {
   mesh.castShadow = ombre;
@@ -263,6 +265,20 @@ function materiauSol(p, ph) {
   return new THREE.MeshStandardMaterial({ color: p.sol, roughness: 0.85 });
 }
 
+// Forme d'une pièce percée d'un rectangle [x0, y0, x1, y1] (trémie), si le rectangle
+// tombe dans la pièce ; sinon null. Le trou est gardé 1 cm à l'intérieur du contour.
+function formeTrouee(poly, [x0, y0, x1, y1]) {
+  if (!dans(poly, (x0 + x1) / 2, (y0 + y1) / 2)) return null;
+  const xs = poly.map(q => q[0]), ys = poly.map(q => q[1]);
+  const a = Math.max(x0, Math.min(...xs) + 1), b = Math.min(x1, Math.max(...xs) - 1);
+  const c = Math.max(y0, Math.min(...ys) + 1), d = Math.min(y1, Math.max(...ys) - 1);
+  const forme = formeDe(poly);
+  forme.holes.push(new THREE.Path([[a, c], [a, d], [b, d], [b, c]].map(([x, y]) => new THREE.Vector2(M(x), M(y)))));
+  const geo = new THREE.ShapeGeometry(forme);
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
 const plafonds = [];
 for (const p of pieces) {
   const geo = new THREE.ShapeGeometry(formeDe(p.poly));
@@ -274,7 +290,8 @@ for (const p of pieces) {
     solPiece.position.y = 0.001;
     ajouter(solPiece, ph, false);
   }
-  const plafond = new THREE.Mesh(geo, matPlafond);
+  // Le plafond de la pièce où arrive l'escalier est percé par la trémie.
+  const plafond = new THREE.Mesh(etage ? formeTrouee(p.poly, etage.tremie) || geo : geo, matPlafond);
   plafond.position.y = H;
   // Le plafond fait de l'ombre : le soleil n'entre que par les fenêtres.
   ajouter(plafond, p.phase, true);
@@ -532,7 +549,9 @@ function escalier(o) {
     poteau.position.set(M(x), h / 2, -M(y));
     ajouter(poteau);
   }
-  obstacles.push({ cx: M(o.x + o.l / 2), cz: -M(o.y + o.p / 2), angle: 0, hl: M(o.l) / 2, he: M(o.p) / 2 });
+  // Pas d'obstacle : on peut monter. La hauteur sous les pieds suit les marches
+  // (hauteurEscalier), et on ne peut pas entrer dans la cage par le côté.
+  infoEscalier = { x0, y0, x1, y1, cx, cy, gb, gh, bas, tour, n, marche };
 }
 
 // ---------- Étiquettes des pièces ----------
@@ -636,7 +655,7 @@ for (const m of murs) for (const o of m.ouvertures || []) {
 }
 function reglerCotes() {
   for (const c of cotes) {
-    c.ligne.visible = cotesVisibles && visible(c.phase);
+    c.ligne.visible = cotesVisibles && visible(c.phase) && niveauMontre(c.niveau);
     // En visite, la cote d'une ouverture descend juste sous le haut de l'ouverture
     // (en vue d'ensemble, elle est posée sur le dessus du mur).
     c.ligne.position.y = mode === 'visite' && c.posVisite ? c.posVisite.y - c.pos.y : 0;
@@ -648,6 +667,162 @@ document.getElementById('cotes')?.addEventListener('click', () => {
   reglerCotes();
 });
 
+// ---------- Étage ----------
+// Combles : murs découpés sous le toit, plancher percé par la trémie, rampants,
+// plafond plat, fenêtres de toit. Chaque élément porte userData.niveau = 1 pour le
+// bouton Étage (vue d'ensemble) ; le toit (userData.toit) n'apparaît qu'en visite.
+const piecesEtage = etage ? etage.pieces.map(p => ({ ...p, niveau: 1 })) : [];
+const toit = etage?.toit;
+// Hauteur sous toit (cm, au-dessus du plancher de l'étage) en un point du plan.
+function hauteurToit(x, y) {
+  let h = Math.min(toit.plafond, toit.hSud + toit.pente * (y - toit.ySud), toit.hNord + toit.pente * (toit.yNord - y));
+  const l = toit.lucarne;
+  if (l && x >= l.x0 - 4 && x <= l.x1 + 4 && y >= toit.yNord - (l.h - toit.hNord) / toit.pente) h = Math.max(h, l.h);
+  return Math.max(h, 0);
+}
+function ajouterEtage(mesh, extra = {}) {
+  mesh.position.y += BASE_ETAGE;
+  Object.assign(mesh.userData, { niveau: 1 }, extra);
+  return mesh;
+}
+// Mur de l'étage : pans pleins entre les ouvertures, dont le haut suit le toit.
+function murEtage(m) {
+  const [ax, ay] = m.a, [bx, by] = m.b, lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg;
+  const haut = u => hauteurToit(ax + ux * u, ay + uy * u);
+  const pan = (s, e, bas, plafonne) => {
+    if (e - s < 0.5) return;
+    const pts = [[s, bas], [e, bas]];
+    for (let u = e; u >= s - 1e-6; u -= Math.min(10, Math.max(e - s, 0.5))) pts.push([u, plafonne ?? haut(u)]);
+    if (pts[pts.length - 1][0] > s) pts.push([s, plafonne ?? haut(s)]);
+    if (pts.slice(2).every(([, v]) => v - bas < 0.5)) return;
+    const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(([u, v]) => new THREE.Vector2(M(u), M(Math.max(v, bas))))), { depth: M(m.ep), bevelEnabled: false });
+    geo.translate(0, 0, -M(m.ep) / 2);
+    const mesh = new THREE.Mesh(geo, matMur);
+    mesh.position.set(M(ax), 0, -M(ay));
+    mesh.rotation.y = Math.atan2(by - ay, bx - ax);
+    ajouter(ajouterEtage(mesh), undefined, true);
+    piecesDeMur.push(mesh);
+    if (bas < 120) obstacles.push({ cx: M(ax + ux * (s + e) / 2), cz: -M(ay + uy * (s + e) / 2), angle: Math.atan2(by - ay, bx - ax), hl: M(e - s) / 2, he: M(m.ep) / 2, niveau: 1 });
+  };
+  let t = 0;
+  for (const o of (m.ouvertures || []).slice().sort((p, q) => p.pos - q.pos)) {
+    pan(t, o.pos, 0);
+    pan(o.pos, o.pos + o.largeur, o.haut);                       // linteau
+    if (o.allege > 0) pan(o.pos, o.pos + o.largeur, 0, o.allege); // allège
+    if (o.type === 'fenetre') {
+      const vitre = new THREE.Mesh(new THREE.BoxGeometry(M(o.largeur), M(o.haut - o.allege), 0.02), matVitre);
+      vitre.position.set(M(ax + ux * (o.pos + o.largeur / 2)), M((o.allege + o.haut) / 2), -M(ay + uy * (o.pos + o.largeur / 2)));
+      vitre.rotation.y = Math.atan2(by - ay, bx - ax);
+      ajouter(ajouterEtage(vitre), undefined, false);
+    }
+    t = o.pos + o.largeur;
+  }
+  pan(t, lg, 0);
+}
+// Surface plane du toit à partir de points du plan (cm) et de leur hauteur (cm).
+const matToit = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 1, side: THREE.DoubleSide });
+const matFenetreToit = new THREE.MeshStandardMaterial({ color: '#bcd6ea', emissive: '#6f8fa8', roughness: 0.2, side: THREE.DoubleSide });
+function surfaceToit(points, materiau = matToit, decalage = 0) {
+  const geo = new THREE.BufferGeometry().setFromPoints(points.map(([x, y, h]) => new THREE.Vector3(M(x), M(h) - decalage, -M(y))));
+  geo.setIndex(points.length === 4 ? [0, 1, 2, 0, 2, 3] : [0, 1, 2]);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, materiau);
+  ajouter(ajouterEtage(mesh, { toit: true }), undefined, true);
+  plafonds.push(mesh);
+  return mesh;
+}
+if (etage) {
+  // Planchers (la mezzanine est percée par la trémie).
+  for (const p of piecesEtage) {
+    const geo = formeTrouee(p.poly, etage.tremie) || (() => { const g = new THREE.ShapeGeometry(formeDe(p.poly)); g.rotateX(-Math.PI / 2); return g; })();
+    const sol = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: p.sol, roughness: 0.85 }));
+    sol.position.y = 0.001;
+    ajouter(ajouterEtage(sol), undefined, false);
+  }
+  // Chants de la dalle autour de la trémie (entre le plafond du RDC et le plancher).
+  const [t0, t1, t2, t3] = etage.tremie, ep = BASE_ETAGE - H;
+  for (const [x, y, l, p] of [[t0, t1, t2 - t0, 1], [t0, t3 - 1, t2 - t0, 1], [t0, t1, 1, t3 - t1], [t2 - 1, t1, 1, t3 - t1]]) {
+    const chant = new THREE.Mesh(new THREE.BoxGeometry(M(l), ep, M(p)), matMur);
+    chant.position.set(M(x + l / 2), H + ep / 2, -M(y + p / 2));
+    ajouter(chant, undefined, false);
+  }
+  etage.murs.forEach(murEtage);
+  // Toit : rampants sud et nord, plafond plat, lucarne de la mezzanine.
+  const { xOuest: xo, xEst: xe, ySud: ys, yNord: yn, hSud, hNord, pente, plafond: hp, lucarne: l } = toit;
+  const ys2 = ys + (hp - hSud) / pente, yn2 = yn - (hp - hNord) / pente;
+  surfaceToit([[xo, ys, hSud], [xe, ys, hSud], [xe, ys2, hp], [xo, ys2, hp]]);
+  surfaceToit([[xo, ys2, hp], [xe, ys2, hp], [xe, yn2, hp], [xo, yn2, hp]]);
+  const morceauxNord = l ? [[xo, l.x0], [l.x1, xe]] : [[xo, xe]];
+  for (const [a, b] of morceauxNord) surfaceToit([[a, yn, hNord], [b, yn, hNord], [b, yn2, hp], [a, yn2, hp]]);
+  if (l) {
+    const yl = yn - (l.h - hNord) / pente;
+    surfaceToit([[l.x0, yl, l.h], [l.x1, yl, l.h], [l.x1, yn2, hp], [l.x0, yn2, hp]]);
+    surfaceToit([[l.x0, l.yFond, l.h], [l.x1, l.yFond, l.h], [l.x1, yl, l.h], [l.x0, yl, l.h]]);
+  }
+  // Fenêtres de toit : posées 1 cm sous le rampant.
+  for (const f of etage.fenetresToit || []) {
+    const [x0, y0, x1, y1] = f.r;
+    surfaceToit([[x0, y0, hauteurToit(x0, y0)], [x1, y0, hauteurToit(x1, y0)], [x1, y1, hauteurToit(x1, y1)], [x0, y1, hauteurToit(x0, y1)]], matFenetreToit, 0.01);
+  }
+  // Garde-corps autour de la trémie, sauf côté arrivée de l'escalier (ouest, en haut).
+  const matGarde = new THREE.MeshStandardMaterial({ color: '#9a9a96', roughness: 0.8 });
+  const garde = ([ax, ay], [bx, by]) => {
+    const lg = Math.hypot(bx - ax, by - ay), nb = Math.max(1, Math.round(lg / 12));
+    for (let k = 0; k <= nb; k++) {
+      const barreau = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.9, 0.035), matGarde);
+      barreau.position.set(M(ax + (bx - ax) * k / nb), 0.45, -M(ay + (by - ay) * k / nb));
+      ajouter(ajouterEtage(barreau), undefined, true);
+    }
+    const main = new THREE.Mesh(new THREE.BoxGeometry(M(lg) + 0.03, 0.045, 0.055), matGarde);
+    main.position.set(M((ax + bx) / 2), 0.92, -M((ay + by) / 2));
+    main.rotation.y = Math.atan2(by - ay, bx - ax);
+    ajouter(ajouterEtage(main), undefined, true);
+  };
+  const e = infoEscalier;
+  if (e) {
+    const arrivee = e.y1 - (e.y1 - e.y0) * 0.45; // début de la volée du haut
+    garde([t0, t1], [t2, t1]);
+    garde([t0, t3], [t2, t3]);
+    garde([t0, t1], [t0, arrivee]);
+  }
+  // Spots, étiquettes et cotes des pièces de l'étage.
+  for (const p of piecesEtage) {
+    const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const lampe = new THREE.PointLight('#fff0dc', 0, 0, 2);
+    lampe.position.set(M(cx), BASE_ETAGE + M(hauteurToit(cx, cy)) - 0.12, -M(cy));
+    lampe.userData.niveau = 1;
+    scene.add(lampe);
+    elements.push(lampe);
+    lampes.push(lampe);
+    const el = document.createElement('span');
+    el.textContent = p.nom;
+    conteneurEtiquettes.append(el);
+    etiquettes.push({ el, p, pos: new THREE.Vector3(M(cx), BASE_ETAGE + 0.1, -M(cy)) });
+    p.poly.forEach((a, i) => {
+      const b = p.poly[(i + 1) % p.poly.length];
+      const lg = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (lg < 3) return;
+      let nx = -(b[1] - a[1]) / lg, ny = (b[0] - a[0]) / lg;
+      if (nx * (cx - (a[0] + b[0]) / 2) + ny * (cy - (a[1] + b[1]) / 2) < 0) { nx = -nx; ny = -ny; }
+      coter([a[0] + nx * 22, a[1] + ny * 22], [b[0] + nx * 22, b[1] + ny * 22], BASE_ETAGE + 0.03, enMetres(lg), undefined, 'cote', [p]);
+      cotes[cotes.length - 1].niveau = 1;
+    });
+  }
+}
+
+// Hauteur des marches sous les pieds (m), en continu le long de l'escalier ;
+// null hors de la cage.
+function hauteurEscalier(x, y) {
+  const e = infoEscalier;
+  if (!e || x < e.x0 || x > e.x1 || y < e.y0 || y > e.y1) return null;
+  let i;
+  if (x >= e.cx) i = e.bas + (Math.max(-Math.PI / 2, Math.min(Math.PI / 2, Math.atan2(y - e.cy, x - e.cx))) + Math.PI / 2) / Math.PI * e.tour;
+  else if (y < e.cy) i = (x - e.x0) / e.gb;
+  else i = e.bas + e.tour + (e.cx - x) / e.gh;
+  return e.marche * Math.max(0, Math.min(e.n, i));
+}
+
 // ---------- Modes ----------
 
 let phase = 'apres';
@@ -656,8 +831,15 @@ const tactile = matchMedia('(pointer: coarse)').matches;
 if (tactile) document.body.classList.add('tactile');
 
 function visible(ph) { return !ph || ph === phase; }
+// Bouton Étage (vue d'ensemble) : montre l'étage par-dessus le RDC. En visite, tout
+// est construit, toit compris, pour pouvoir monter.
+let voirEtage = false;
+const niveauMontre = niv => mode === 'visite' || (niv === 1) === voirEtage || (!niv && !voirEtage);
 function appliquerPhase() {
-  for (const e of elements) e.visible = visible(e.userData.phase) && (mode === 'visite' || !plafonds.includes(e));
+  for (const e of elements) {
+    e.visible = visible(e.userData.phase) && (mode === 'visite' || !plafonds.includes(e)) &&
+      (e.userData.niveau !== 1 || mode === 'visite' || voirEtage);
+  }
   reglerLampes(mode === 'visite');
   reglerCotes();
 }
@@ -672,7 +854,12 @@ orbite.minDistance = 4;
 orbite.maxDistance = 45;
 
 const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 120);
-const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70 };document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => changerMode(b.dataset.mode));
+const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };document.getElementById('etage')?.addEventListener('click', () => {
+  voirEtage = !voirEtage;
+  document.getElementById('etage').setAttribute('aria-pressed', String(voirEtage));
+  appliquerPhase();
+});
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => changerMode(b.dataset.mode));
 document.querySelectorAll('[data-phase]').forEach(b => b.onclick = () => {
   phase = b.dataset.phase;
   document.querySelectorAll('[data-phase]').forEach(x => x.setAttribute('aria-pressed', x === b));
@@ -752,7 +939,7 @@ const RAYON = 0.22;
 function collisions() {
   for (let passe = 0; passe < 3; passe++) {
     for (const o of obstacles) {
-      if (!visible(o.phase)) continue;
+      if (!visible(o.phase) || (o.niveau || 0) !== joueur.niveau) continue;
       // Repère local de l'obstacle (axe du mur : angle autour de Y, Z inversé).
       const dx = joueur.x - o.cx, dz = joueur.z - o.cz;
       const c = Math.cos(o.angle), s = Math.sin(o.angle);
@@ -782,6 +969,12 @@ function dans(poly, x, y) {
   return ok;
 }
 
+// Pièce où se trouve le joueur, au niveau où il est.
+function pieceDuJoueur() {
+  const liste = joueur.niveau === 1 ? piecesEtage : pieces;
+  return liste.find(p => visible(p.phase) && dans(p.poly, joueur.x * 100, -joueur.z * 100));
+}
+
 const affichePiece = document.getElementById('piece');
 let pieceCourante = '';
 function majVisite(dt) {
@@ -796,14 +989,23 @@ function majVisite(dt) {
   cote += marche.x;
   const vitesse = 1.4 * dt;
   const fx = -Math.sin(joueur.lacet), fz = -Math.cos(joueur.lacet);
+  const ancien = { x: joueur.x, z: joueur.z };
   joueur.x += (fx * av - fz * cote) * vitesse;
   joueur.z += (fz * av + fx * cote) * vitesse;
   collisions();
-  camVisite.position.set(joueur.x, joueur.yeux, joueur.z);
+  // Hauteur du sol sous les pieds : marches dans la cage d'escalier, plancher de
+  // l'étage une fois en haut, sol du RDC sinon. Une marche de plus de 45 cm (bord de
+  // la trémie, côté de l'escalier) arrête le pas.
+  const px = joueur.x * 100, py = -joueur.z * 100, marcheSous = hauteurEscalier(px, py);
+  let sol = marcheSous ?? (joueur.alt > 1.35 ? (piecesEtage.some(p => dans(p.poly, px, py)) ? BASE_ETAGE : null) : 0);
+  if (sol === null || Math.abs(sol - joueur.alt) > 0.45) { joueur.x = ancien.x; joueur.z = ancien.z; sol = joueur.alt; }
+  joueur.alt += (sol - joueur.alt) * Math.min(1, dt * 12); // montée douce
+  joueur.niveau = joueur.alt > 1.35 ? 1 : 0;
+  camVisite.position.set(joueur.x, joueur.alt + joueur.yeux, joueur.z);
   camVisite.rotation.set(joueur.tangage, joueur.lacet, 0, 'YXZ');
-  lumiereInterieure.position.set(joueur.x, H - 0.1, joueur.z);
-  const ici = pieces.find(p => visible(p.phase) && dans(p.poly, joueur.x * 100, -joueur.z * 100));
-  const nom = ici ? ici.nom : 'Dehors';
+  lumiereInterieure.position.set(joueur.x, joueur.alt + H - 0.1, joueur.z);
+  const ici = pieceDuJoueur();
+  const nom = ici ? ici.nom : hauteurEscalier(joueur.x * 100, -joueur.z * 100) !== null ? 'Escalier' : 'Dehors';
   if (nom !== pieceCourante) { pieceCourante = nom; affichePiece.textContent = nom; }
 }
 
@@ -829,7 +1031,7 @@ function boucle(t) {
     // masquée ; en zoomant, la place se libère et elle réapparaît.
     const placees = [];
     for (const e of etiquettes) {
-      const montre = visible(e.p.phase);
+      const montre = visible(e.p.phase) && niveauMontre(e.p.niveau);
       v.copy(e.pos).project(cam);
       e.el.style.display = montre && v.z < 1 ? '' : 'none';
       const x = (v.x * 0.5 + 0.5) * innerWidth, y = (-v.y * 0.5 + 0.5) * innerHeight;
@@ -838,7 +1040,7 @@ function boucle(t) {
       if (montre) placees.push([x, y, e.p.nom.length * 3.8 + 8]);
     }
     for (const c of cotes) {
-      if (!cotesVisibles || !visible(c.phase)) { c.el.style.display = 'none'; continue; }
+      if (!cotesVisibles || !visible(c.phase) || !niveauMontre(c.niveau)) { c.el.style.display = 'none'; continue; }
       v.copy(c.pos).project(cam);
       const x = (v.x * 0.5 + 0.5) * innerWidth, y = (-v.y * 0.5 + 0.5) * innerHeight;
       const dl = c.el.textContent.length * 3.3 + 5, dh = 8;
@@ -853,7 +1055,7 @@ function boucle(t) {
   if (mode === 'visite') {
     // En visite : les cotes de la pièce où l'on est et des pièces ouvertes dessus,
     // à moins de 7 m et devant soi.
-    const ici = pieces.find(p => visible(p.phase) && dans(p.poly, joueur.x * 100, -joueur.z * 100));
+    const ici = pieceDuJoueur();
     const zone = new Set([ici]);
     for (const l of liens) if (visible(l.phase) && (l.a === ici || l.b === ici)) zone.add(l.a).add(l.b);
     const placees = [];
