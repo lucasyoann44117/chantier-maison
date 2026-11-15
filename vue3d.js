@@ -118,13 +118,54 @@ murs.forEach(construireMur);
 // ---------- Sols, plafonds, objets ----------
 
 const formeDe = poly => new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(M(x), M(y))));
+
+// Carrelage actuel (photos) : carreaux beiges mouchetés, joints gris, posés droit.
+// Dessiné une fois sur 4 × 4 carreaux, un peu différents les uns des autres.
+function texteCarrelage(cote) {
+  const px = 128, n = 4, c = document.createElement('canvas');
+  c.width = c.height = px * n;
+  const g = c.getContext('2d');
+  g.fillStyle = '#9c968c';
+  g.fillRect(0, 0, c.width, c.height);
+  let graine = 7;
+  const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const v = Math.round(hasard() * 10 - 5);
+    g.fillStyle = `rgb(${242 + v}, ${232 + v}, ${212 + v})`;
+    g.fillRect(i * px + 3, j * px + 3, px - 6, px - 6);
+    for (let k = 0; k < 140; k++) {
+      g.fillStyle = hasard() < 0.5 ? 'rgba(150,135,110,0.35)' : 'rgba(255,250,240,0.4)';
+      g.fillRect(i * px + 4 + hasard() * (px - 8), j * px + 4 + hasard() * (px - 8), 2, 2);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = rendu.capabilities.getMaxAnisotropy();
+  // Les UV d'une ShapeGeometry sont les coordonnées du plan, en mètres.
+  t.repeat.set(1 / (n * M(cote)), 1 / (n * M(cote)));
+  return t;
+}
+const matCarrelage = {};
+function materiauSol(p, ph) {
+  if (ph === 'avant' && p.carrelageAvant) {
+    const cote = p.carrelageAvant;
+    matCarrelage[cote] ??= new THREE.MeshStandardMaterial({ map: texteCarrelage(cote), roughness: 0.5 });
+    return matCarrelage[cote];
+  }
+  return new THREE.MeshStandardMaterial({ color: p.sol, roughness: 0.85 });
+}
+
 const plafonds = [];
 for (const p of pieces) {
   const geo = new THREE.ShapeGeometry(formeDe(p.poly));
   geo.rotateX(-Math.PI / 2); // (x, y) du plan → (X, -Z)
-  const solPiece = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: p.sol, roughness: 0.85 }));
-  solPiece.position.y = 0.001;
-  ajouter(solPiece, p.phase, false);
+  // Une pièce carrelée aujourd'hui a deux sols : le carrelage en « avant », sa couleur en « après ».
+  for (const ph of p.carrelageAvant && !p.phase ? ['avant', 'apres'] : [p.phase]) {
+    const solPiece = new THREE.Mesh(geo, materiauSol(p, ph));
+    solPiece.position.y = 0.001;
+    ajouter(solPiece, ph, false);
+  }
   const plafond = new THREE.Mesh(geo, matPlafond);
   plafond.position.y = H;
   // Le plafond fait de l'ombre : le soleil n'entre que par les fenêtres.
@@ -237,7 +278,6 @@ orbite.maxDistance = 45;
 
 const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 120);
 const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70 };
-
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => changerMode(b.dataset.mode));
 document.querySelectorAll('[data-phase]').forEach(b => b.onclick = () => {
   phase = b.dataset.phase;
