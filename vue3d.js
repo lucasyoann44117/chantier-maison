@@ -194,7 +194,7 @@ function construireMur(m) {
   const sens = faceExterieure === 4 ? 1 : -1; // vers l'extérieur : (uy, -ux) * sens
   const decal = M(m.ep) / 2 + 0.025;
   for (const o of ouvertures) {
-    if (o.type !== 'fenetre') continue;
+    if (o.type !== 'fenetre' || o.volet === false) continue; // volet: false = pas de volet
     const hv = M(o.haut - o.allege), lv = M(o.largeur / 2);
     for (const centre of [o.pos - o.largeur / 4, o.pos + o.largeur + o.largeur / 4]) {
       const volet = new THREE.Mesh(new THREE.BoxGeometry(lv, hv, 0.03), matVolet);
@@ -643,6 +643,10 @@ function uvBois(geo, l, h, p) {
 const meubles = [];
 let positionsMeubles = {};
 try { positionsMeubles = window.MAISON_MOBILIER || JSON.parse(localStorage.getItem('maquette-mobilier') || '{}'); } catch { positionsMeubles = {}; }
+// Version de la disposition : quand les places d'origine sont refaites, les positions
+// enregistrées avant ne valent plus et sont ignorées (une seule fois).
+const VERSION_MOBILIER = 2;
+if (positionsMeubles?._version !== VERSION_MOBILIER) positionsMeubles = {};
 const matsMeuble = {};
 function matMeuble(nom) {
   if (matsMeuble[nom]) return matsMeuble[nom];
@@ -750,7 +754,8 @@ const MODELES = {
         const x = -l / 2 + lw * (k + 0.5), yc = y + hr / 2;
         if (t === 'O') {
           // Niche : fond sombre en retrait et tablette au milieu si la niche est haute.
-          piece3d(g, lw - 3, hr - 3, 0.4, x, yc, z + 0.05, 'ombre');
+          // Fond de niche : un peu plus sombre que le meuble (un meuble blanc reste blanc).
+          piece3d(g, lw - 3, hr - 3, 0.4, x, yc, z + 0.05, o.fond || (m === 'blanc' ? '#d6d1c8' : 'ombre'));
           if (hr > 45) piece3d(g, lw - 3, 1.8, 0.6, x, yc, z + 0.2, m);
           continue;
         }
@@ -939,7 +944,7 @@ function construireMeuble(o) {
   const defauts = { avant: { x: o.x, y: o.y, angle: o.angle ?? 0 } };
   const [ax, ay, aa] = String(o.apres ?? '').split(',').map(Number);
   defauts.apres = o.apres ? { x: ax, y: ay, angle: aa || 0 } : { ...defauts.avant };
-  const places = {
+  const places = o.fixe ? { avant: defauts.avant, apres: defauts.apres } : {
     avant: positionsMeubles[o.id] ?? defauts.avant,
     apres: positionsMeubles[o.id + '@apres'] ?? defauts.apres,
   };
@@ -1437,8 +1442,7 @@ orbite.minDistance = 4;
 orbite.maxDistance = 45;
 
 const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 120);
-const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };
-// ---------- Déplacer les meubles (bouton Meubles, vue d'ensemble) ----------
+const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };// ---------- Déplacer les meubles (bouton Meubles, vue d'ensemble) ----------
 // Attraper un meuble et le faire glisser au sol ; une barre permet de le tourner.
 // Positions enregistrées : window.MAISON_SAUVER_MOBILIER (appli) ou le navigateur.
 let modeMeubles = false, meubleChoisi = null, glisse = null, minuterieSauvegarde = null;
@@ -1480,7 +1484,7 @@ function bougerMeuble(g, x, y, angle) {
 function sauverMeubles() {
   clearTimeout(minuterieSauvegarde);
   minuterieSauvegarde = setTimeout(async () => {
-    const pos = {}, arrondi = p => ({ x: Math.round(p.x), y: Math.round(p.y), angle: p.angle });
+    const pos = { _version: VERSION_MOBILIER }, arrondi =p => ({ x: Math.round(p.x), y: Math.round(p.y), angle: p.angle });
     for (const g of meubles) {
       pos[g.userData.meuble.id] = arrondi(g.userData.places.avant);
       pos[g.userData.meuble.id + '@apres'] = arrondi(g.userData.places.apres);
@@ -1521,7 +1525,8 @@ const versSol = e => {
 rendu.domElement.addEventListener('pointerdown', e => {
   if (!modeMeubles || mode !== 'ensemble') return;
   versSol(e);
-  const touche = rayonMeuble.intersectObjects(meubles.filter(g => g.visible), true)[0];
+  // Les meubles fixes (poêle) ne s'attrapent pas.
+  const touche = rayonMeuble.intersectObjects(meubles.filter(g => g.visible && !g.userData.meuble.fixe), true)[0];
   if (!touche) { choisirMeuble(null); return; }
   let g = touche.object;
   while (!meubles.includes(g)) g = g.parent;
@@ -1556,6 +1561,7 @@ rendu.domElement.addEventListener('pointercancel', finGlisse, true);document.get
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => changerMode(b.dataset.mode));
 document.querySelectorAll('[data-phase]').forEach(b => b.onclick = () => {
   phase = b.dataset.phase;
+  choisirMeuble(null); // le meuble choisi n'est plus au même endroit dans l'autre phase
   document.querySelectorAll('[data-phase]').forEach(x => x.setAttribute('aria-pressed', x === b));
   appliquerPhase();
 });
