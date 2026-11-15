@@ -1,6 +1,6 @@
-﻿// Garde l'application disponible hors connexion. RÃ©seau d'abord, pour voir
+﻿// Garde l'application disponible hors connexion. Réseau d'abord, pour voir
 // tout de suite les nouvelles versions ; le cache sert seulement en secours.
-// Les donnÃ©es Supabase ne passent pas par ce cache.
+// Les données Supabase ne passent pas par ce cache.
 const CACHE = 'chantier-v44';
 const FICHIERS = [
   './', 'index.html', 'styles.css', 'app.js', 'db.js', 'config.js', 'maquette.html', 'vue3d.js',
@@ -22,8 +22,8 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    // no-cache : le navigateur revalide auprÃ¨s du serveur, une nouvelle version
-    // s'affiche donc dÃ¨s la publication.
+    // no-cache : le navigateur revalide auprès du serveur, une nouvelle version
+    // s'affiche donc dès la publication.
     fetch(e.request, { cache: 'no-cache' })
       .then(rep => {
         const copie = rep.clone();
