@@ -183,6 +183,7 @@ function construireMur(m) {
     const s = o.pos, e = o.pos + o.largeur;
     if (o.allege > 0) pave(s, e, 0, M(o.allege));
     if (o.type === 'fenetre' || o.type === 'baie') pave(s, e, M(o.allege), M(o.haut), matVitre, true);
+    if (o.type === 'porte' && o.vitree) porteVitree(m, o, angle, ux, uy);
     if (o.type === 'arche') arche(m, o, angle, ux, uy, ep);
     else pave(s, e, M(o.haut), H, matMur, false);
     curseur = e;
@@ -206,6 +207,28 @@ function construireMur(m) {
 }
 
 // Linteau en arc : un rectangle percé d'un demi-cercle, extrudé dans l'épaisseur.
+// Porte vitrée à petits carreaux (fermée, dans le plan du mur) : cadre blanc, vitre,
+// petits bois formant 3 × 5 carreaux, pour laisser passer la lumière.
+const matMenuiserie = new THREE.MeshStandardMaterial({ color: '#f4f3ef', roughness: 0.5 });
+function porteVitree(m, o, angle, ux, uy) {
+  const [ax, ay] = m.a, c = o.pos + o.largeur / 2, g = new THREE.Group();
+  const L = M(o.largeur) - 0.02, h = M(o.haut) - 0.01, e = 0.04, b = 0.07, f = 0.022;
+  const pave = (l, hh, x, y, mat = matMenuiserie, ep = e) => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(l, hh, ep), mat);
+    p.position.set(x, y, 0);
+    g.add(p);
+  };
+  pave(L, b, 0, h - b / 2); pave(L, b * 1.6, 0, b * 0.8);
+  pave(b, h, -L / 2 + b / 2, h / 2); pave(b, h, L / 2 - b / 2, h / 2);
+  const x0 = -L / 2 + b, x1 = L / 2 - b, y0 = b * 1.6, y1 = h - b;
+  pave(x1 - x0, y1 - y0, 0, (y0 + y1) / 2, matVitre, 0.01);
+  for (let k = 1; k < 3; k++) pave(f, y1 - y0, x0 + (x1 - x0) * k / 3, (y0 + y1) / 2, matMenuiserie, 0.03);
+  for (let k = 1; k < 5; k++) pave(x1 - x0, f, 0, y0 + (y1 - y0) * k / 5, matMenuiserie, 0.03);
+  pave(0.02, 0.12, L / 2 - b - 0.05, h * 0.47, new THREE.MeshStandardMaterial({ color: '#8f9296', metalness: 0.7, roughness: 0.3 }), 0.06);
+  g.position.set(M(ax + ux * c), 0, -M(ay + uy * c));
+  g.rotation.y = angle;
+  ajouter(g, m.phase, false);
+}
 function arche(m, o, angle, ux, uy, ep) {
   const w = M(o.largeur), r = w / 2, naissance = M(o.haut) - r;
   const forme = new THREE.Shape();
@@ -841,14 +864,42 @@ const MODELES = {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 5, h - 4, 5, sx * (l / 2 - 5), (h - 4) / 2, sz * (p / 2 - 5), m);
     if (o.tablette) piece3d(g, l - 6, 2, p - 6, 0, 12, 0, m); // tablette basse
   } },
-  // Poêle à granulés noir, vitre devant, conduit jusqu'au plafond (conduit = longueur).
+  // Poêle à granulés rond (photos) : cylindre noir brillant, porte vitrée bombée avec la
+  // flamme, conduit noir jusqu'au plafond (conduit = longueur).
   poele: { construire(g, o) {
-    const { l, p, h } = o;
-    piece3d(g, l, h, p, 0, h / 2, 0, 'noir');
-    piece3d(g, l - 14, h * 0.35, 0.5, 0, h * 0.55, p / 2 + 0.2, 'ecran');
+    const { l, h } = o, r = M(l / 2);
+    const corps = new THREE.Mesh(new THREE.CylinderGeometry(r, r, M(h), 40), new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.25, metalness: 0.3 }));
+    corps.position.y = M(h / 2);
+    g.add(corps);
+    const vitre = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.003, r + 0.003, M(h * 0.32), 24, 1, true, -0.55, 1.1),
+      new THREE.MeshStandardMaterial({ color: '#2a1a10', emissive: '#c25a1a', emissiveIntensity: 0.6, roughness: 0.2, side: THREE.DoubleSide }));
+    vitre.position.y = M(h * 0.58);
+    g.add(vitre);
     const tuyau = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, M(o.conduit || 160), 16), matMeuble('noir'));
-    tuyau.position.set(0, M(h + (o.conduit || 160) / 2), -M(p / 4));
+    tuyau.position.set(0, M(h + (o.conduit || 160) / 2), 0);
     g.add(tuyau);
+  } },
+  // Chaise longue (le « morceau de canapé » à part) : piètement métal, assise gris foncé,
+  // dossier gris clair au bout (côté -Z).
+  chaiseLongue: { construire(g, o) {
+    const { l, p } = o;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 3, 14, 3, sx * (l / 2 - 5), 7, sz * (p / 2 - 6), 'metalBlanc');
+    piece3d(g, l, 6, p, 0, 17, 0, 'gris');
+    piece3d(g, l - 4, 14, p - 4, 0, 27, 0, o.couleur || '#4a4c50');
+    piece3d(g, l, 45, 16, 0, 52, -p / 2 + 8, o.dos || '#b9b8b3');
+    piece3d(g, 14, 22, 45, -l / 2 + 7, 45, -p / 2 + 30, o.dos || '#b9b8b3');
+  } },
+  // Lampadaire arc : socle, mât qui monte puis s'incurve, abat-jour noir suspendu (en +Z).
+  lampadaire: { construire(g, o) {
+    const metal = matMeuble('inox'), h = o.h || 200, port = o.p || 120;
+    const socle = new THREE.Mesh(new THREE.CylinderGeometry(M(16), M(16), M(3), 24), metal);
+    socle.position.y = M(1.5);
+    g.add(socle);
+    const courbe = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, M(h * 1.15), 0), new THREE.Vector3(0, M(h * 0.82), M(port)));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(courbe, 24, M(1), 6), metal));
+    const abat = new THREE.Mesh(new THREE.CylinderGeometry(M(18), M(20), M(22), 24, 1, true), new THREE.MeshStandardMaterial({ color: '#151515', roughness: 0.8, side: THREE.DoubleSide }));
+    abat.position.set(0, M(h * 0.82 - 14), M(port));
+    g.add(abat);
   } },
   // Écran plat (télévision, tableau, miroir, cadre) : panneau mince, posé à z cm du sol.
   panneau: { construire(g, o) {
@@ -993,7 +1044,8 @@ function tabouret(o) {
   dossier.material = matAssise.clone();
   dossier.material.side = THREE.DoubleSide;
   dossier.position.y = hA + 0.1;
-  groupe.add(assise, dossier);
+  groupe.add(assise);
+  if (o.dossier !== false) groupe.add(dossier); // dossier: false = tabouret sans dossier
   for (const [dx, dz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
     const pied = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, hA - 0.07, 8), matPied);
     pied.position.set(dx * r * 0.62, (hA - 0.07) / 2, dz * r * 0.62);
