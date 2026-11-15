@@ -127,7 +127,8 @@ const MOTIFS = {
   // Futur sol (provisoire, rien n'est choisi) : multi-formats façon carrelage ancien, grège.
   // Pose aléatoire sur 40 × 40 modules (8 m avec un module de 20 cm) : pas de motif
   // répété visible ni de centrage. Formats de 1 × 1 à 3 × 3 modules (20 à 60 cm).
-  multiformat: { cases: 40, px: 24, centre: false,
+  // relief : force du relief (carrelage ancien : joints creux, bords arrondis, usure).
+  multiformat: { cases: 40, px: 32, centre: false, relief: 3, ecart: 22,
     formats: [[1, 1, 1], [2, 1, 2], [1, 2, 2], [2, 2, 3], [3, 2, 3], [2, 3, 3], [3, 3, 2]],
     couleur: [196, 188, 175], joint: '#d9d4cb', mouchetis: 6 },
 };
@@ -153,47 +154,81 @@ function poseAleatoire(m, hasard) {
   return rects;
 }
 
+// Deux images du même calepinage : les couleurs, et le relief (clair = haut) qui
+// creuse les joints, arrondit les bords et rend la surface irrégulière.
 function texteCarrelage(nom) {
-  const m = MOTIFS[nom], px = m.px || 96, c = document.createElement('canvas');
-  c.width = c.height = px * m.cases;
-  const g = c.getContext('2d');
+  const m = MOTIFS[nom], px = m.px || 96, taille = px * m.cases;
+  const toile = () => { const c = document.createElement('canvas'); c.width = c.height = taille; return [c, c.getContext('2d')]; };
+  const [c, g] = toile(), [cr, gr] = toile();
   g.fillStyle = m.joint;
-  g.fillRect(0, 0, c.width, c.height);
+  g.fillRect(0, 0, taille, taille);
+  gr.fillStyle = '#000';
+  gr.fillRect(0, 0, taille, taille);
   let graine = 7;
   const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
-  const joint = px >= 64 ? 2 : 1;
+  const joint = px >= 64 ? 2 : 1, ecart = m.ecart || 12, bord = m.relief ? Math.max(2, Math.round(px / 10)) : 1;
   for (const [i, j, l, h] of m.rects || poseAleatoire(m, hasard)) {
-    const v = Math.round(hasard() * 12 - 6), [r, v2, b] = m.couleur;
+    const v = Math.round(hasard() * ecart - ecart / 2), [r, v2, b] = m.couleur;
     const x = i * px + joint, y = j * px + joint, w = l * px - 2 * joint, hh = h * px - 2 * joint;
     g.fillStyle = `rgb(${r + v}, ${v2 + v}, ${b + v})`;
     g.fillRect(x, y, w, hh);
+    // Relief : bords arrondis (dégradé vers le joint), chaque carreau un peu plus haut ou bas.
+    const haut = 200 + Math.round(hasard() * 40 - 20);
+    for (let k = 0; k <= bord; k++) {
+      const n = Math.round(90 + (haut - 90) * Math.sin((k / bord) * Math.PI / 2));
+      gr.fillStyle = `rgb(${n}, ${n}, ${n})`;
+      gr.fillRect(x + k, y + k, w - 2 * k, hh - 2 * k);
+    }
+    // Usure : taches plus claires ou foncées, et creux dans le relief.
+    if (m.relief) for (let k = 0; k < 3 * l * h; k++) {
+      const rx = x + bord + hasard() * (w - 2 * bord), ry = y + bord + hasard() * (hh - 2 * bord), rr = px * (0.08 + hasard() * 0.25);
+      // Taches floues (dégradé radial) pour éviter les ronds nets.
+      const tache = (ctx, rgb, a) => {
+        const d = ctx.createRadialGradient(rx, ry, 0, rx, ry, rr);
+        d.addColorStop(0, `rgba(${rgb},${a})`);
+        d.addColorStop(1, `rgba(${rgb},0)`);
+        ctx.fillStyle = d;
+        ctx.fillRect(Math.max(x, rx - rr), Math.max(y, ry - rr), Math.min(x + w, rx + rr) - Math.max(x, rx - rr), Math.min(y + hh, ry + rr) - Math.max(y, ry - rr));
+      };
+      tache(g, hasard() < 0.5 ? '120,110,95' : '250,245,235', 0.14);
+      tache(gr, hasard() < 0.6 ? '0,0,0' : '255,255,255', 0.15);
+    }
     for (let k = 0; k < m.mouchetis * l * h; k++) {
-      g.fillStyle = hasard() < 0.5 ? 'rgba(130,120,105,0.3)' : 'rgba(255,250,240,0.35)';
-      g.fillRect(x + 1 + hasard() * (w - 2), y + 1 + hasard() * (hh - 2), joint, joint);
+      const sombre = hasard() < 0.5, mx = x + 1 + hasard() * (w - 2), my = y + 1 + hasard() * (hh - 2);
+      g.fillStyle = sombre ? 'rgba(130,120,105,0.3)' : 'rgba(255,250,240,0.35)';
+      g.fillRect(mx, my, joint, joint);
+      if (m.relief && sombre) { gr.fillStyle = 'rgba(0,0,0,0.35)'; gr.fillRect(mx, my, joint, joint); }
     }
   }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = rendu.capabilities.getMaxAnisotropy();
-  return t;
+  const texture = (toile, couleurs) => {
+    const t = new THREE.CanvasTexture(toile);
+    if (couleurs) t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = rendu.capabilities.getMaxAnisotropy();
+    return t;
+  };
+  return { couleurs: texture(c, true), relief: texture(cr, false) };
 }
 
 const textures = {};
 // Carrelage { motif, module (cm) } d'une pièce, centré sur elle pour rester symétrique.
 function materiauCarrelage(p, { motif, module }) {
   textures[motif] ??= texteCarrelage(motif);
-  const t = textures[motif].clone();
-  t.needsUpdate = true;
   // Les UV d'une ShapeGeometry sont les coordonnées du plan, en mètres.
   const rep = 1 / (MOTIFS[motif].cases * M(module));
-  t.repeat.set(rep, rep);
-  if (MOTIFS[motif].centre !== false) {
-    const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
-    const cx = M((Math.min(...xs) + Math.max(...xs)) / 2), cy = M((Math.min(...ys) + Math.max(...ys)) / 2);
-    t.offset.set(0.5 - cx * rep, 0.5 - cy * rep);
-  }
-  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 });
+  const [map, bumpMap] = [textures[motif].couleurs, textures[motif].relief].map(source => {
+    const t = source.clone();
+    t.needsUpdate = true;
+    t.repeat.set(rep, rep);
+    if (MOTIFS[motif].centre !== false) {
+      const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
+      const cx = M((Math.min(...xs) + Math.max(...xs)) / 2), cy = M((Math.min(...ys) + Math.max(...ys)) / 2);
+      t.offset.set(0.5 - cx * rep, 0.5 - cy * rep);
+    }
+    return t;
+  });
+  const relief = MOTIFS[motif].relief || 0.6;
+  return new THREE.MeshStandardMaterial({ map, bumpMap, bumpScale: relief, roughness: MOTIFS[motif].relief ? 0.75 : 0.5 });
 }
 
 function materiauSol(p, ph) {
