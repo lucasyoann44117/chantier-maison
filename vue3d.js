@@ -727,9 +727,10 @@ const MODELES = {
   // Chaise pliante de bistrot : armature blanche, lattes de bois.
   chaisePliante: { l: 42, p: 46, construire(g) {
     for (let k = 0; k < 4; k++) piece3d(g, 38, 1.5, 8, 0, 45, -14 + k * 9.5, 'lattes');
+    // Pieds droits, sans croix (remarque de Yoann) : avant jusqu'à l'assise, arrière jusqu'au dossier.
     for (const sx of [-1, 1]) {
-      piece3d(g, 2, 50, 2, sx * 19, 23, 6, 'metalBlanc', -0.45);
-      piece3d(g, 2, 88, 2, sx * 19, 44, -6, 'metalBlanc', 0.3);
+      piece3d(g, 2, 45, 2, sx * 19, 22.5, 18, 'metalBlanc');
+      piece3d(g, 2, 86, 2, sx * 19, 43, -16, 'metalBlanc', 0.08);
     }
     for (const y of [70, 82]) piece3d(g, 36, 6, 1.5, 0, y, -14, 'lattes', 0.3);
   } },
