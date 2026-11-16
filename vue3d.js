@@ -669,7 +669,7 @@ let positionsMeubles = {};
 try { positionsMeubles = window.MAISON_MOBILIER || JSON.parse(localStorage.getItem('maquette-mobilier') || '{}'); } catch { positionsMeubles = {}; }
 // Version de la disposition : quand les places d'origine sont refaites, les positions
 // enregistrées avant ne valent plus et sont ignorées (une seule fois).
-const VERSION_MOBILIER = 2;
+const VERSION_MOBILIER = 3; // 3 : salon recalé sur les photos du 16/11/2026
 if (positionsMeubles?._version !== VERSION_MOBILIER) positionsMeubles = {};
 const matsMeuble = {};
 function matMeuble(nom) {
@@ -947,6 +947,17 @@ const MODELES = {
     piece3d(g, 38, 38, 18, 0, 59, -22, 'porcelaine');
     piece3d(g, 38, 2.5, 48, 0, 41, 8, o.couleur || 'porcelaine');
   } },
+  // Lampadaire trépied : trois pieds en bois clair, abat-jour blanc cylindrique.
+  trepied: { construire(g, o) {
+    const h = o.h || 150;
+    for (let k = 0; k < 3; k++) {
+      const a = k * Math.PI * 2 / 3, pied = piece3d(g, 2.5, h * 0.82, 2.5, Math.cos(a) * 14, h * 0.4, Math.sin(a) * 14, 'boisClair');
+      pied.rotation.set(Math.sin(a) * 0.17, 0, -Math.cos(a) * 0.17);
+    }
+    const abat = new THREE.Mesh(new THREE.CylinderGeometry(M(20), M(20), M(34), 24), new THREE.MeshStandardMaterial({ color: '#f6f3ec', emissive: '#3a3328', roughness: 0.9 }));
+    abat.position.y = M(h - 17);
+    g.add(abat);
+  } },
   // Lave-linge ou sèche-linge : caisse blanche, hublot devant, bandeau de commande.
   lavelinge: { construire(g, o) {
     const { l, p, h } = o;
@@ -1032,7 +1043,9 @@ function construireMeuble(o) {
 const chargeur3d = new GLTFLoader();
 async function chargerObjet3d(g, o) {
   try {
-    const url = window.MAISON_OBJET3D ? await window.MAISON_OBJET3D(o.id) : `objets3d/${o.id}.glb`;
+    // glb: true → objets3d/<id>.glb ; glb: 'nom' → objets3d/<nom>.glb (un modèle pour plusieurs meubles).
+    const nom = typeof o.glb === 'string' ? o.glb : o.id;
+    const url = window.MAISON_OBJET3D ? await window.MAISON_OBJET3D(nom) : `objets3d/${nom}.glb`;
     if (!url) return;
     const gltf = await chargeur3d.loadAsync(url);
     const modele = gltf.scene;
