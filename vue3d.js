@@ -1105,6 +1105,11 @@ const MODELES = {
       g.add(b);
     }
   } },
+  // Coussin / galette d'assise : pavé souple l × p × h, posé à z cm (sur un banc).
+  coussin: { construire(g, o) {
+    piece3d(g, o.l, o.h, o.p, 0, o.h / 2, 0, o.couleur || '#3f9e9a');
+    piece3d(g, o.l + 0.6, 0.6, o.p + 0.6, 0, o.h / 2, 0, o.passepoil || '#2f7f7b'); // couture
+  } },
   // Patère murale : planche et crochets (n = nombre de crochets), accrochée à z cm.
   patere: { construire(g, o) {
     const n = o.n || 6, m = o.mat || 'blanc';
