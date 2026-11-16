@@ -1434,10 +1434,9 @@ if (etage) {
   };
   const e = infoEscalier;
   if (e) {
-    const arrivee = e.y1 - (e.y1 - e.y0) * 0.45; // début de la volée du haut
     garde([t0, t1], [t2, t1]);
     garde([t0, t3], [t2, t3]);
-    garde([t0, t1], [t0, arrivee]);
+    // Pas de bout de garde-corps à l'arrivée (ouest) : il n'existe pas (remarque de Yoann).
   }
   // Spots, étiquettes et cotes des pièces de l'étage.
   for (const p of piecesEtage) {
