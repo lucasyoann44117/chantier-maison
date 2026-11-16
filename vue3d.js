@@ -1703,7 +1703,15 @@ function choisirMeuble(g) {
   cadre.visible = !!g;
   if (g) cadre.setFromObject(g);
   barreMeuble.style.display = g ? 'flex' : 'none';
-  if (g) barreMeuble.querySelector('#nom-meuble').textContent = g.userData.meuble.nom;
+  if (g) barreMeuble.querySelector('#nom-meuble').innerHTML = nomEtReference(g.userData.meuble);
+}
+// Objet à l'essai (achat envisagé) : ref = { magasin, nom, prix (€), url } → « nom · magasin · prix · Voir ».
+function nomEtReference(o) {
+  const r = o.ref;
+  if (!r) return esc(o.nom || o.id);
+  const prix = r.prix ? `${Number(r.prix).toLocaleString('fr-FR')} €` : '';
+  return `${esc(o.nom || o.id)}<small style="font-weight:400;opacity:.8"> · ${esc([r.magasin, r.nom].filter(Boolean).join(' '))}${prix ? ` · ${prix}` : ''}</small>` +
+    (r.url ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:#f5b800">Voir</a>` : '');
 }
 // Meubles qui suivent celui-ci (option suit=id : les chaises suivent la table).
 const suiveurs = g => meubles.filter(f => f.userData.meuble.suit === g.userData.meuble.id && visible(f.userData.phase) && !f.userData.reserve);
@@ -1838,6 +1846,9 @@ function dessinerReserve() {
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
         <label>Couleur <input name="couleur" type="color" value="${t.couleur}"></label>
         <label><input name="etage" type="checkbox"> À l'étage</label></div>
+      <label style="display:block">Magasin et référence<input name="magasin" placeholder="Pier Import Melbourne" style="${champ}"></label>
+      <div style="display:flex;gap:6px"><label style="flex:1">Prix (€)<input name="prix" type="number" min="0" style="${champ}"></label>
+        <label style="flex:2">Lien<input name="url" type="url" placeholder="https://…" style="${champ}"></label></div>
       <div style="display:flex;gap:6px;justify-content:flex-end">
         <button data-action="annuler" style="${styleBouton};background:#38424a;color:#fff">Annuler</button>
         <button data-action="creer" style="${styleBouton};background:#f5b800;color:#1e2429">Ajouter</button></div>
@@ -1848,7 +1859,7 @@ function dessinerReserve() {
   panneau.innerHTML = `<b>Réserve (${phase === 'apres' ? 'après travaux' : 'avant travaux'})</b>` +
     (liste.length ? liste.map(g => {
       const o = g.userData.meuble;
-      return `<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><span style="flex:1">${echapper(o.nom || o.id)}</span>` +
+      return `<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><span style="flex:1">${nomEtReference(o)}</span>` +
         (o.ajout ? `<button data-action="supprimer" data-id="${o.id}" title="Supprimer" style="${styleBouton};background:#38424a;color:#fff">✕</button>` : '') +
         `<button data-action="reprendre" data-id="${o.id}" style="${styleBouton};background:#f5b800;color:#1e2429">Reprendre</button></div>`;
     }).join('') : '<p style="color:#aab;margin:8px 0">Rien en réserve. Choisir un meuble puis « 📦 Ranger ».</p>') +
@@ -1879,6 +1890,9 @@ function creerAjout(panneau) {
     x: Math.round(orbite.target.x * 100), y: Math.round(-orbite.target.z * 100),
     ...(type.rangs && { rangs: type.rangs }), ...(type.libre && { libre: true }), ...(v('etage').checked && { niveau: 1 }),
   };
+  // Référence de l'objet à l'essai (pour retrouver le lien et le prix).
+  const ref = { magasin: v('magasin').value.trim(), prix: +v('prix').value || null, url: /^https?:\/\//.test(v('url').value.trim()) ? v('url').value.trim() : '' };
+  if (ref.magasin || ref.prix || ref.url) o.ref = ref;
   ajouts.push(o);
   const g = construireMeuble({ ...o, type: 'meuble', ajout: true });
   uiReserve.form = false;
