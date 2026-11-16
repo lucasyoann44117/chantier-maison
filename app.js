@@ -150,6 +150,9 @@
     if (desordre.length) a.push(['mal', `${desordre.length} tâche${desordre.length > 1 ? 's commencent' : ' commence'} avant la fin de celle qui doit passer avant`, '#planning']);
     const retard = D.taches.filter(t => t.statut !== 'fait' && !t.fin_reelle && t.fin && t.fin < aujourdhui());
     if (retard.length) a.push(['mal', `${retard.length} tâche${retard.length > 1 ? 's' : ''} en retard`, '#planning']);
+    // Décennales qui ne couvrent pas le début prévu des travaux.
+    const nonCouvertes = fichesAssurance().filter(f => f.etat.ton === 'mal');
+    if (nonCouvertes.length) a.push(['mal', `Décennale à redemander : ${nonCouvertes.map(f => f.e).join(', ')}`, '#assurances']);
     return a;
   }
 
@@ -184,6 +187,7 @@
       </section>
       ${jaugeBudget(t)}
       ${lienFinancement()}
+      ${lienAssurances()}
       <section aria-label="Avancement des travaux">
         ${metre('Travaux', termines / D.postes.length, `${termines} poste${termines > 1 ? 's' : ''} terminé${termines > 1 ? 's' : ''} sur ${D.postes.length}`)}
       </section>
@@ -212,6 +216,64 @@
     return `<ul class="liste"><li><a class="ligne" href="#financement">
       <span class="corps"><strong>Financement</strong><small>${detail}</small></span>
       ${enLice.length ? `<span class="montant">${euros(enLice[0].c.cout)}</span>` : ''}</a></li></ul>`;
+  }
+
+  // ---------- Assurances décennales des artisans ----------
+
+  // Une fiche par entreprise (hors « Nous »), les cas à régler d'abord.
+  function fichesAssurance() {
+    const entreprises = [...new Set(D.postes.map(p => p.entreprise).filter(e => e && e !== NOUS))];
+    const rang = { mal: 0, att: 1, ok: 2 };
+    return entreprises.map(e => ({ e, postes: D.postes.filter(p => p.entreprise === e), ...assuranceEntreprise(e) }))
+      .sort((a, b) => rang[a.etat.ton] - rang[b.etat.ton]);
+  }
+
+  function lienAssurances() {
+    const f = fichesAssurance();
+    if (!f.length) return '';
+    const ok = f.filter(x => x.etat.ton === 'ok').length;
+    return `<ul class="liste"><li><a class="ligne" href="#assurances">
+      <span class="corps"><strong>Assurances décennales</strong><small>${ok} artisan${ok > 1 ? 's' : ''} couvert${ok > 1 ? 's' : ''} sur ${f.length}</small></span>
+      ${ok < f.length ? pastille(`${f.length - ok} à régler`, f.some(x => x.etat.ton === 'mal') ? 'mal' : 'att') : pastille('À jour', 'ok')}</a></li></ul>`;
+  }
+
+  // Ce qu'il faut demander, phrase prête à dire à l'artisan.
+  function aDemander(f) {
+    if (!f.a) return /cuisine|ixina/i.test(f.e + f.postes.map(p => p.nom).join(' '))
+      ? `${f.e} : demander l'attestation de responsabilité civile professionnelle (et la décennale s'ils en ont une) ; une cuisine posée n'est en général pas couverte par la décennale.`
+      : `${f.e} : demander l'attestation décennale.`;
+    if (f.etat.ton === 'mal' && f.debut) return `${f.e} : demander l'attestation décennale ${f.debut.slice(0, 4)}, leur début est prévu le ${date(f.debut)} et l'actuelle s'arrête au ${date(f.a.valide_au)}.`;
+    return `${f.e} : ${f.etat.texte.toLowerCase()}.`;
+  }
+
+  function vueAssurances() {
+    const fiches = fichesAssurance();
+    const aFaire = fiches.filter(f => f.etat.ton !== 'ok');
+    const sansDate = fiches.filter(f => f.a && !f.debut);
+    const ligne = f => {
+      // notes : « Assureur. Activités couvertes. »
+      const [assureur, ...reste] = String(f.a?.notes || '').split('. ');
+      const periode = f.a?.valide_au ? `chantiers ouverts ${f.a.valide_du ? `du ${date(f.a.valide_du)} ` : ''}au ${date(f.a.valide_au)}` : '';
+      const corps = `<span class="corps"><strong>${esc(f.e)}</strong>
+        <small>${esc(f.postes.map(p => p.nom).join(' · '))}</small>
+        ${f.a ? `<small>${esc([assureur, periode].filter(Boolean).join(' · '))}</small>` : ''}
+        ${reste.length ? `<small>${esc(reste.join('. '))}</small>` : ''}</span>${pastille(f.etat.texte, f.etat.ton)}`;
+      return f.a ? `<li><button class="ligne" data-action="ouvrir-document" data-id="${f.a.id}">${corps}</button></li>`
+        : `<li><a class="ligne" href="#poste/${f.postes[0].id}">${corps}</a></li>`;
+    };
+    return `<p class="retour"><a href="#bilan">← Bilan</a></p>
+      <header class="entete"><h1>Assurances décennales</h1><button class="btn" data-action="nouveau-document">Ajouter une attestation</button></header>
+      <section class="bloc"><h2>L'essentiel</h2><ul class="topo">
+        <li>La décennale répare pendant <strong>10 ans après la réception</strong> les dommages graves : solidité de la maison, ou partie devenue inutilisable (fuites d'étanchéité, fissures structurelles…).</li>
+        <li>Elle couvre les travaux dont le chantier <strong>démarre pendant la période</strong> écrite sur l'attestation. Sans déclaration d'ouverture de chantier (votre projet est en déclaration préalable), c'est la date où chaque artisan commence.</li>
+        <li>L'attestation doit nommer l'<strong>activité</strong> faite chez vous (maçonnerie, couverture…). Un artisan qui sort de ses activités déclarées n'est pas couvert pour ce travail.</li>
+        <li>Les attestations se renouvellent chaque 1<sup>er</sup> janvier : pour un démarrage en 2027, il faut celle de 2027.</li>
+        <li>Gardez-les <strong>10 ans après la réception</strong> : elles servent en cas de sinistre et doivent être jointes à l'acte si vous vendez avant.</li>
+      </ul></section>
+      ${aFaire.length ? `<section class="bloc"><h2>À faire</h2><ul class="topo">${aFaire.map(f => `<li>${esc(aDemander(f))}</li>`).join('')}</ul></section>` : ''}
+      <section class="bloc"><h2>Par artisan</h2><ul class="liste">${fiches.map(ligne).join('')}</ul>
+        ${sansDate.length ? `<p class="discret">Sans date au planning (${esc(sansDate.map(f => f.e).join(', '))}) : la vérification se fera dès que leur début sera planifié. S'ils commencent après la fin de leur attestation, il faudra la nouvelle.</p>` : ''}
+      </section>`;
   }
 
   // Graduation « ronde » de l'axe : 1, 2, 2,5 ou 5 fois une puissance de 10.
@@ -756,7 +818,7 @@
       etat = { texte: `Ne couvre pas le début prévu (${date(debut)}) : demander la nouvelle`, ton: 'mal' };
     } else if (!debut && a.valide_au < iso(new Date())) etat = { texte: 'Expirée', ton: 'mal' };
     else etat = { texte: debut ? `Couvre le début prévu (${date(debut)})` : 'À jour', ton: 'ok' };
-    return { attestations, a, etat };
+    return { attestations, a, etat, debut };
   }
 
   // Lecteur PDF chargé à la première ouverture d'un PDF.
@@ -937,9 +999,9 @@
     });
   }
 
-  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, documents: vueDocuments, devis: vueDevis, factures: vueFactures, reste: vueReste, financement: vueFinancement };
+  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, documents: vueDocuments, devis: vueDevis, factures: vueFactures, reste: vueReste, financement: vueFinancement, assurances: vueAssurances };
   // Devis, factures, reste et financement s'ouvrent depuis le Bilan.
-  const SOUS_BILAN = ['devis', 'factures', 'reste', 'financement'];
+  const SOUS_BILAN = ['devis', 'factures', 'reste', 'financement', 'assurances'];
 
   // Le titre, ses boutons et les filtres qui le suivent restent en haut de
   // l'écran pendant le défilement, comme la barre d'une appli.

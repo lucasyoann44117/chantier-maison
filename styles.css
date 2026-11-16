@@ -908,3 +908,8 @@ dialog[open]::backdrop { animation: voile .22s ease-out; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* Topo (assurances décennales) : listes de phrases courtes. */
+.topo { margin: 0; padding-left: 1.2em; }
+.topo li { margin: .45em 0; line-height: 1.45; }
+
