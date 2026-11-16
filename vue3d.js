@@ -1434,9 +1434,11 @@ if (etage) {
   };
   const e = infoEscalier;
   if (e) {
-    garde([t0, t1], [t2, t1]);
+    // Côté sud, sous le rampant : pas de garde-corps (remarque de Yoann). Une barrière
+    // longe la trémie côté ouest, avant la sortie de l'escalier.
+    const arrivee = e.y1 - (e.y1 - e.y0) * 0.45; // début de la volée du haut
     garde([t0, t3], [t2, t3]);
-    // Pas de bout de garde-corps à l'arrivée (ouest) : il n'existe pas (remarque de Yoann).
+    garde([t0, t1], [t0, arrivee]);
   }
   // Spots, étiquettes et cotes des pièces de l'étage.
   for (const p of piecesEtage) {
