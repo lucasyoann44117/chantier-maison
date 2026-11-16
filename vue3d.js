@@ -1090,6 +1090,21 @@ const MODELES = {
     for (const sx of [-1, 1]) piece3d(g, 6, h - 46, 14, sx * (l / 2 - 1), 46 + (h - 46) / 2, -p / 2 + 9, c, -0.14, sx * 0.12);
     return dos;
   } },
+  // Banc coffre capitonné (projet) : caisson tapissé, assise rembourrée à boutons,
+  // petits pieds en bois ; l × p × h.
+  bancCoffre: { construire(g, o) {
+    const { l, p, h } = o, c = o.couleur || '#cbbfa8', pz = 5;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 4, pz, 4, sx * (l / 2 - 5), pz / 2, sz * (p / 2 - 5), o.matPieds || 'chene');
+    piece3d(g, l, h - pz - 9, p, 0, pz + (h - pz - 9) / 2, 0, c);
+    piece3d(g, l + 1, 9, p + 1, 0, h - 4.5, 0, c);
+    piece3d(g, l + 1.2, 0.4, p + 1.2, 0, h - 9, 0, '#a89c86'); // joint du couvercle
+    const nx = Math.round(l / 18), nz = 2;
+    for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) {
+      const b = new THREE.Mesh(new THREE.SphereGeometry(M(1), 8, 6), matMeuble('#9d917b'));
+      b.position.set(M(-l / 2 + (i + 0.5 + (k % 2) * 0.5) * l / (nx + 0.5)), M(h + 0.2), M(-p / 4 + k * p / 2));
+      g.add(b);
+    }
+  } },
   // Patère murale : planche et crochets (n = nombre de crochets), accrochée à z cm.
   patere: { construire(g, o) {
     const n = o.n || 6, m = o.mat || 'blanc';
