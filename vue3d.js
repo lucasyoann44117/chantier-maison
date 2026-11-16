@@ -861,6 +861,13 @@ const MODELES = {
   } },
   // Pouf rond ou table basse ronde.
   pouf: { construire(g, o) {
+    // carre=1 : gros pouf rectangulaire en tissu (salon, photos du 16/11), coussin sur une base.
+    if (o.carre) {
+      const c = o.couleur || '#5d5f62';
+      piece3d(g, o.l - 4, o.h - 16, o.p - 4, 0, (o.h - 16) / 2, 0, c);
+      piece3d(g, o.l, 16, o.p, 0, o.h - 8, 0, c);
+      return;
+    }
     const m = new THREE.Mesh(new THREE.CylinderGeometry(M(o.l) / 2, M(o.l) / 2, M(o.h), 28), matMeuble(o.couleur || o.mat || 'gris'));
     m.position.y = M(o.h) / 2;
     g.add(m);
@@ -1040,6 +1047,19 @@ const MODELES = {
         g.add(m);
       }
     }
+  } },
+  // Fauteuil modulable (photos du 16/11) : cadre et pieds alu, assise gris foncé, dossier et
+  // accoudoir gris clair arrondis ; accoudoir = g ou d (vu assis).
+  fauteuilModule: { construire(g, o) {
+    const { l, p } = o, alu = 'inox', s = o.accoudoir === 'd' ? 1 : -1;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      piece3d(g, 4, 14, 4, sx * (l / 2 - 8), 7, sz * (p / 2 - 8), alu);
+      piece3d(g, 9, 1, 9, sx * (l / 2 - 8), 0.5, sz * (p / 2 - 8), alu);
+    }
+    piece3d(g, l, 8, p, 0, 18, 0, alu);
+    piece3d(g, l - 2, 14, p - 2, 0, 29, 0, '#3d3e40');
+    piece3d(g, l - 16, 38, 14, -s * 7, 55, -p / 2 + 8, '#c9c6bf');
+    piece3d(g, 14, 30, p - 14, s * (l / 2 - 8), 51, 6, '#c9c6bf');
   } },
   // Patère murale : planche et crochets (n = nombre de crochets), accrochée à z cm.
   patere: { construire(g, o) {
