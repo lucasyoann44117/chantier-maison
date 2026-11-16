@@ -38,7 +38,7 @@
   const SOURCES = { banque: 'Banque', apport: 'Apport personnel' };
   const STATUTS_TACHE = { a_faire: 'À faire', en_cours: 'En cours', fait: 'Réalisé' };
   const MOYENS = { telephone: 'Téléphone', sms: 'SMS', email: 'E-mail', sur_place: 'Sur place' };
-  const TYPES_DOC = { devis: 'Devis', facture: 'Facture', plan: 'Plan', photo: 'Photo', banque: 'Banque', autre: 'Autre' };
+  const TYPES_DOC = { devis: 'Devis', facture: 'Facture', plan: 'Plan', photo: 'Photo', banque: 'Banque', assurance: 'Attestation d\'assurance', autre: 'Autre' };
 
   // ---------- Outils ----------
 
@@ -335,6 +335,7 @@
       ['E-mail', p.email ? `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>` : ''],
       ['Prévu', periodeTaches(taches, 'debut', 'fin')],
       ['Terminé le', finPoste(taches) && date(finPoste(taches))],
+      ['Assurance décennale', ligneAssurance(p)],
     ].filter(([, v]) => v);
 
     return `<p class="retour"><a href="#postes">← Postes</a></p>
@@ -356,6 +357,14 @@
         </button></li>`).join('')}</ul>`, 'Aucune relance.')}
       ${section('Documents', 'nouveau-document', documents.length && listeDocuments(documents), 'Aucun document.')}
       ${section('Au planning', 'nouvelle-tache', taches.length && listePlanning(taches, 'prevu', false), 'Aucune tâche liée.')}`;
+  }
+
+  // Attestation de l'entreprise du poste : période couverte, état, et lien pour l'ouvrir.
+  function ligneAssurance(p) {
+    if (!p.entreprise || p.entreprise === NOUS) return '';
+    const { a, etat } = assuranceEntreprise(p.entreprise);
+    const periode = a && a.valide_au ? `chantiers ouverts ${a.valide_du ? `du ${date(a.valide_du)} ` : ''}au ${date(a.valide_au)}` : '';
+    return `${a ? `<button class="lien" data-action="ouvrir-document" data-id="${a.id}">${periode || esc(a.nom)}</button> ` : ''}${pastille(etat.texte, etat.ton)}`;
   }
 
   function ligneDevis(d) {
@@ -637,7 +646,7 @@
   function vueDocuments(sous) {
     const liste = D.documents.filter(x => filtres.documents === 'tous' || x.type === filtres.documents);
     return `<header class="entete"><h1>Documents</h1><button class="btn" data-action="nouveau-document">Ajouter un document</button></header>
-      ${puces('documents', { tous: 'Tous', devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', banque: 'Banque', autre: 'Autres' })}
+      ${puces('documents', { tous: 'Tous', devis: 'Devis', facture: 'Factures', plan: 'Plans', photo: 'Photos', banque: 'Banque', assurance: 'Assurances', autre: 'Autres' })}
       ${etatDrive(sous)}
       ${liste.length ? listeDocuments(liste) : '<p class="vide">Aucun document ici.</p>'}`;
   }
@@ -685,6 +694,9 @@
       { nom: 'poste_id', libelle: 'Poste', type: 'select', options: optionsPostes(), demi: true },
       { nom: 'devis_id', libelle: 'Devis lié', type: 'select', options: optionsDevis, demi: true },
       { nom: 'facture_id', libelle: 'Facture liée', type: 'select', options: optionsFactures, demi: true },
+      // Attestation d'assurance : période des chantiers ouverts couverts.
+      { nom: 'valide_du', libelle: 'Chantiers ouverts du', type: 'date', demi: true, assurance: true },
+      { nom: 'valide_au', libelle: 'au', type: 'date', demi: true, assurance: true },
       { nom: 'notes', libelle: 'Notes', type: 'textarea' },
     ];
     const form = ouvrirFormulaire({
@@ -715,8 +727,36 @@
         if (!f) return;
         if (!form.elements.nom.value) form.elements.nom.value = f.name.replace(/\.\w{2,5}$/, '');
         if (f.type.startsWith('image/') && form.elements.type.value === 'autre') form.elements.type.value = 'photo';
+        if (/attestation|assurance|d[ée]cennale/i.test(f.name)) form.elements.type.value = 'assurance';
+        dates();
       };
     }
+    // Les dates de couverture ne s'affichent que pour une attestation d'assurance.
+    const dates = () => champs.filter(c => c.assurance).forEach(c => {
+      form.elements[c.nom].closest('.champ').style.display = form.elements.type.value === 'assurance' ? '' : 'none';
+    });
+    form.elements.type.addEventListener('change', dates);
+    dates();
+  }
+
+  // Attestations d'assurance d'une entreprise (rangées sur l'un de ses postes) et ce
+  // qu'elles couvrent : la décennale vaut pour les travaux dont le chantier s'ouvre
+  // pendant la période, soit, sans déclaration d'ouverture, le début des travaux de
+  // l'entreprise (code des assurances, art. A243-1, annexe I).
+  function assuranceEntreprise(entreprise) {
+    const postes = D.postes.filter(p => p.entreprise && p.entreprise === entreprise).map(p => p.id);
+    const attestations = D.documents.filter(x => x.type === 'assurance' && postes.includes(x.poste_id))
+      .sort((a, b) => String(b.valide_au || '').localeCompare(String(a.valide_au || '')));
+    const debut = D.taches.filter(t => postes.includes(t.poste_id)).map(t => t.debut_reel || t.debut).filter(Boolean).sort()[0] || '';
+    const a = attestations[0];
+    let etat = null;
+    if (!a) etat = { texte: 'Pas d\'attestation', ton: 'att' };
+    else if (!a.valide_au) etat = { texte: 'Dates à relever', ton: 'att' };
+    else if (debut && (debut > a.valide_au || (a.valide_du && debut < a.valide_du))) {
+      etat = { texte: `Ne couvre pas le début prévu (${date(debut)}) : demander la nouvelle`, ton: 'mal' };
+    } else if (!debut && a.valide_au < iso(new Date())) etat = { texte: 'Expirée', ton: 'mal' };
+    else etat = { texte: debut ? `Couvre le début prévu (${date(debut)})` : 'À jour', ton: 'ok' };
+    return { attestations, a, etat };
   }
 
   // Lecteur PDF chargé à la première ouverture d'un PDF.

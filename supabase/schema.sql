@@ -184,7 +184,10 @@ create table documents (
   id uuid primary key default gen_random_uuid(),
   drive_id text not null,
   nom text not null,
-  type text not null default 'autre' check (type in ('devis', 'facture', 'plan', 'photo', 'banque', 'autre')),
+  type text not null default 'autre' check (type in ('devis', 'facture', 'plan', 'photo', 'banque', 'assurance', 'autre')),
+  -- Attestation d'assurance : période des chantiers ouverts couverts.
+  valide_du date,
+  valide_au date,
   mime text,
   taille bigint,
   poste_id uuid references postes (id) on delete set null,
