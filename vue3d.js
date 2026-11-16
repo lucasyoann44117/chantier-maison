@@ -1041,6 +1041,12 @@ const MODELES = {
       }
     }
   } },
+  // Patère murale : planche et crochets (n = nombre de crochets), accrochée à z cm.
+  patere: { construire(g, o) {
+    const n = o.n || 6, m = o.mat || 'blanc';
+    piece3d(g, o.l, 8, 2, 0, 4, 0, m);
+    for (let k = 0; k < n; k++) piece3d(g, 3, 3, 5, -o.l / 2 + 10 + k * (o.l - 20) / Math.max(1, n - 1), 4, 3, m, -0.4);
+  } },
   // Suspension boule (plumes, papier) : sphère accrochée au plafond (z = bas de la boule).
   suspension: { construire(g, o) {
     const b = new THREE.Mesh(new THREE.SphereGeometry(M(o.l) / 2, 24, 16), new THREE.MeshStandardMaterial({ color: '#fbf8f2', emissive: '#4a4236', roughness: 1 }));
@@ -1061,7 +1067,8 @@ function construireMeuble(o) {
   defauts.apres = o.apres ? { x: ax, y: ay, angle: aa || 0 } : { ...defauts.avant };
   // Une place peut porter reserve: true : le meuble est rangé dans la réserve pour cette
   // phase (invisible, ne gêne pas). Un objet ajouté sans place enregistrée est en réserve.
-  const defaut = ph => o.ajout ? { ...defauts[ph], reserve: true } : defauts[ph];
+  // reserve=1 dans un ordre : meuble connu mais pas encore placé (Yoann le sort de la réserve).
+  const defaut = ph => (o.ajout || o.reserve) ? { ...defauts[ph], reserve: true } : defauts[ph];
   const places = o.fixe ? { avant: defauts.avant, apres: defauts.apres } : {
     avant: positionsMeubles[o.id] ?? defaut('avant'),
     apres: positionsMeubles[o.id + '@apres'] ?? defaut('apres'),
