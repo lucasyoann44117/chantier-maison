@@ -1738,7 +1738,9 @@ function choisirMeuble(g) {
 function nomEtReference(o) {
   const r = o.ref;
   if (!r) return esc(o.nom || o.id);
-  const prix = r.prix ? `${Number(r.prix).toLocaleString('fr-FR')} ${r.devise || '€'}` : '';
+  // Prix en francs suisses : converti en euros au cours du 16/11/2026 (1 CHF ≈ 1,08 €, taux médian).
+  const CHF_EUR = 1.08, nb = v => Number(v).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+  const prix = !r.prix ? '' : r.devise === 'CHF' ? `${nb(r.prix)} CHF (≈ ${nb(Math.round(r.prix * CHF_EUR * 100) / 100)} €)` : `${nb(r.prix)} ${r.devise || '€'}`;
   return `${esc(o.nom || o.id)}<small style="font-weight:400;opacity:.8"> · ${esc([r.magasin, r.nom].filter(Boolean).join(' '))}${prix ? ` · ${prix}` : ''}</small>` +
     (r.url ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:#f5b800">Voir</a>` : '');
 }
