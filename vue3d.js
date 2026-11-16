@@ -1438,7 +1438,7 @@ if (etage) {
     // longe la trémie côté ouest, avant la sortie de l'escalier.
     const arrivee = e.y1 - (e.y1 - e.y0) * 0.45; // début de la volée du haut
     garde([t0, t3], [t2, t3]);
-    garde([t0, t1], [t0, arrivee]);
+    garde([t0, etage.debutGardeOuest ?? t1], [t0, arrivee]);
   }
   // Spots, étiquettes et cotes des pièces de l'étage.
   for (const p of piecesEtage) {
