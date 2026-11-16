@@ -1594,6 +1594,7 @@ function appliquerPhase() {
   reglerLampes(mode === 'visite');
   reglerCotes();
   majReserve();
+  majElec();
 }
 
 const camEnsemble = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
@@ -1820,6 +1821,196 @@ function supprimerAjout(g) {
   sauverMeubles();
   majReserve();
 }
+
+// ---------- Électricité : prises et interrupteurs (bouton ⚡) ----------
+// Toucher un mur (vue d'ensemble ou visite) pose le type choisi à sa hauteur habituelle.
+// État : existant (blanc, avant et après), à créer (vert, après seulement), à retirer
+// (rouge, avant seulement). Enregistré pour le foyer : window.MAISON_SAUVER_ELEC (ligne
+// « electricite » dans l'appli), sinon le navigateur. Point : { id, type, etat, x, y, z, a, niv }
+// (x, y en cm du plan ; z = hauteur du centre en cm ; a = direction du mur vers la pièce).
+const TYPES_ELEC = {
+  prise: { lib: 'Prise', z: 25, l: 8 }, prise2: { lib: 'Prise double', z: 25, l: 15 },
+  inter: { lib: 'Interrupteur', z: 110, l: 8 }, vav: { lib: 'Va-et-vient', z: 110, l: 8 },
+  rj45: { lib: 'Prise RJ45 / TV', z: 25, l: 8 },
+};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const ETATS_ELEC = { existant: 'Existant', nouveau: 'À créer', retirer: 'À retirer' };
+const COULEURS_ELEC = { existant: '#f6f4ef', nouveau: '#2ea043', retirer: '#d1242f' };
+function elec() {
+  if (elec.s) return elec.s;
+  let d = window.MAISON_ELEC;
+  if (!d) try { d = JSON.parse(localStorage.getItem('maquette-elec') || 'null'); } catch { d = null; }
+  const s = elec.s = { points: Array.isArray(d?.points) ? d.points : [], actif: false, type: 'prise', etat: null, choisi: null, groupe: new THREE.Group(), meshes: new Map() };
+  scene.add(s.groupe);
+  for (const p of s.points) dessinerPoint(p);
+  return s;
+}
+function dessinerPoint(p) {
+  const s = elec.s, t = TYPES_ELEC[p.type] || TYPES_ELEC.prise, g = new THREE.Group();
+  const plaque = new THREE.Mesh(new THREE.BoxGeometry(M(t.l), M(8), M(1.2)), new THREE.MeshStandardMaterial({ color: COULEURS_ELEC[p.etat] || COULEURS_ELEC.existant, roughness: 0.5 }));
+  g.add(plaque);
+  const fonce = new THREE.MeshStandardMaterial({ color: '#3a3d42' });
+  const trou = x => { const c = new THREE.Mesh(new THREE.CylinderGeometry(M(2.2), M(2.2), M(0.4), 16), fonce); c.rotation.x = Math.PI / 2; c.position.set(M(x), 0, M(0.6)); g.add(c); };
+  if (p.type === 'prise') trou(0);
+  else if (p.type === 'prise2') { trou(-3.6); trou(3.6); }
+  else if (p.type === 'rj45') { const c = new THREE.Mesh(new THREE.BoxGeometry(M(3), M(2.5), M(0.4)), fonce); c.position.z = M(0.6); g.add(c); }
+  else {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(M(5), M(5.5), M(0.6)), new THREE.MeshStandardMaterial({ color: '#d9d6cf' }));
+    b.position.z = M(0.8); g.add(b);
+    if (p.type === 'vav') { const f = new THREE.Mesh(new THREE.BoxGeometry(M(3), M(0.5), M(0.3)), fonce); f.position.z = M(1.2); g.add(f); }
+  }
+  g.position.set(M(p.x), (p.niv ? BASE_ETAGE : 0) + M(p.z), -M(p.y));
+  g.rotation.y = p.a;
+  g.userData.point = p;
+  s.groupe.add(g);
+  s.meshes.set(p.id, g);
+}
+function majElec() {
+  const s = elec();
+  for (const g of s.groupe.children) {
+    const p = g.userData.point;
+    const phaseOk = p.etat === 'existant' || (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant');
+    g.visible = phaseOk && niveauMontre(p.niv ? 1 : 0);
+    const choisi = s.choisi === p;
+    g.scale.setScalar(choisi ? 1.6 : 1);
+    g.children[0].material.emissive?.set(choisi ? '#7a5c00' : '#000');
+  }
+  majPanneauElec();
+}
+function sauverElec() {
+  clearTimeout(sauverElec.t);
+  sauverElec.t = setTimeout(async () => {
+    const d = { points: elec().points };
+    try {
+      if (window.MAISON_SAUVER_ELEC) await window.MAISON_SAUVER_ELEC(d);
+      else localStorage.setItem('maquette-elec', JSON.stringify(d));
+    } catch (err) { console.warn('Électricité non enregistrée', err); }
+  }, 400);
+}
+const pieceDuPoint = p => {
+  const nx = Math.sin(p.a), ny = -Math.cos(p.a); // direction vers la pièce, en coordonnées du plan
+  const x = p.x + nx * 15, y = p.y + ny * 15;
+  return (p.niv ? piecesEtage : pieces).find(q => (!q.phase || q.phase === phase) && dans(q.poly, x, y))?.nom || 'Hors pièce';
+};
+function panneauElec() {
+  if (panneauElec.el) return panneauElec.el;
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;right:12px;top:var(--haut-reserve,110px);z-index:6;display:none;width:min(330px,calc(100vw - 24px));max-height:70vh;overflow:auto;background:#1e2429;color:#fff;border-radius:14px;padding:10px;font:14px system-ui;box-shadow:0 8px 24px rgb(0 0 0 / .4)';
+  document.body.append(el);
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const s = elec();
+    if (b.dataset.type) s.type = b.dataset.type;
+    if (b.dataset.etat) {
+      if (s.choisi) { s.choisi.etat = b.dataset.etat; recreerPoint(s.choisi); sauverElec(); }
+      else s.etat = b.dataset.etat;
+    }
+    if (b.dataset.act === 'supprimer' && s.choisi) {
+      s.points.splice(s.points.indexOf(s.choisi), 1);
+      s.groupe.remove(s.meshes.get(s.choisi.id));
+      s.meshes.delete(s.choisi.id);
+      s.choisi = null;
+      sauverElec();
+    }
+    if (b.dataset.act === 'lacher') s.choisi = null;
+    if (b.dataset.act === 'recap') panneauElec.recap = !panneauElec.recap;
+    majElec();
+  });
+  return (panneauElec.el = el);
+}
+function recreerPoint(p) {
+  const s = elec();
+  s.groupe.remove(s.meshes.get(p.id));
+  dessinerPoint(p);
+}
+function majPanneauElec() {
+  const s = elec(), el = panneauElec();
+  el.style.display = s.actif ? 'block' : 'none';
+  if (!s.actif) return;
+  const barre = document.querySelector('.barre');
+  if (barre) document.body.style.setProperty('--haut-reserve', `${Math.round(barre.getBoundingClientRect().bottom) + 8}px`);
+  const etat = s.etat || (phase === 'apres' ? 'nouveau' : 'existant');
+  const bouton = (attr, val, lib, actif, couleur) => `<button data-${attr}="${val}" style="font:600 13px system-ui;border:0;border-radius:999px;padding:6px 10px;margin:3px 3px 0 0;cursor:pointer;background:${actif ? (couleur || '#f5b800') : '#38424a'};color:${actif && !couleur ? '#1e2429' : '#fff'}">${lib}</button>`;
+  let html = '<b>⚡ Électricité</b>';
+  if (s.choisi) {
+    const p = s.choisi;
+    html += `<p style="margin:8px 0 4px">${esc(TYPES_ELEC[p.type].lib)} · ${esc(pieceDuPoint(p))} · ${p.z} cm</p>` +
+      Object.entries(ETATS_ELEC).map(([k, v]) => bouton('etat', k, v, p.etat === k, COULEURS_ELEC[k] === '#f6f4ef' ? '#6e7781' : COULEURS_ELEC[k])).join('') +
+      `<div>${bouton('act', 'supprimer', 'Effacer de la maquette')}${bouton('act', 'lacher', 'OK', true)}</div>`;
+  } else {
+    html += '<div style="margin-top:6px">' + Object.entries(TYPES_ELEC).map(([k, t]) => bouton('type', k, t.lib, s.type === k)).join('') + '</div>' +
+      '<div>' + Object.entries(ETATS_ELEC).filter(([k]) => k !== 'retirer').map(([k, v]) => bouton('etat', k, v, etat === k, k === 'nouveau' ? '#2ea043' : '#6e7781')).join('') + '</div>' +
+      '<p style="margin:8px 0 0;color:#aab;font-size:12px">Touche un mur pour poser. Touche une prise pour la modifier ou la marquer « à retirer ».</p>';
+  }
+  // Récapitulatif par pièce (phase affichée) : ce qu'il faudra dire à l'électricien.
+  const vus = s.points.filter(p => p.etat === 'existant' || (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant'));
+  html += `<div>${bouton('act', 'recap', `Récapitulatif (${vus.length})`, panneauElec.recap)}</div>`;
+  if (panneauElec.recap) {
+    const parPiece = {};
+    for (const p of vus) {
+      const r = (parPiece[pieceDuPoint(p)] ||= {});
+      const cle = `${TYPES_ELEC[p.type].lib}${p.etat === 'existant' ? '' : ` (${ETATS_ELEC[p.etat].toLowerCase()})`}`;
+      r[cle] = (r[cle] || 0) + 1;
+    }
+    html += Object.keys(parPiece).length ? Object.entries(parPiece).sort().map(([piece, r]) =>
+      `<p style="margin:8px 0 0"><b>${esc(piece)}</b><br><span style="color:#cdd">${Object.entries(r).map(([k, n]) => `${n} × ${esc(k)}`).join(' · ')}</span></p>`).join('')
+      : '<p style="color:#aab;margin:8px 0 0">Rien de posé pour l\'instant.</p>';
+  }
+  el.innerHTML = html;
+}
+// Bouton ⚡ à côté de Meubles ; les deux modes s'excluent.
+const boutonElec = document.createElement('button');
+boutonElec.id = 'elec';
+boutonElec.setAttribute('aria-pressed', 'false');
+boutonElec.textContent = '⚡ Électricité';
+document.getElementById('meubles')?.after(boutonElec);
+boutonElec.addEventListener('click', () => {
+  const s = elec();
+  s.actif = !s.actif;
+  boutonElec.setAttribute('aria-pressed', String(s.actif));
+  if (s.actif && modeMeubles) document.getElementById('meubles').click();
+  if (!s.actif) s.choisi = null;
+  majElec();
+});
+document.getElementById('meubles')?.addEventListener('click', () => {
+  if (modeMeubles && elec().actif) boutonElec.click();
+});
+// Un toucher sans glisser (pour ne pas gêner la rotation de la vue ni le regard en visite).
+let departElec = null;
+rendu.domElement.addEventListener('pointerdown', e => { departElec = { x: e.clientX, y: e.clientY }; });
+rendu.domElement.addEventListener('pointerup', e => {
+  const s = elec();
+  if (!s.actif || !departElec || Math.hypot(e.clientX - departElec.x, e.clientY - departElec.y) > 6) return;
+  const r = rendu.domElement.getBoundingClientRect();
+  pointeur.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  rayonMeuble.setFromCamera(pointeur, mode === 'visite' ? camVisite : camEnsemble);
+  const prise = rayonMeuble.intersectObjects(s.groupe.children.filter(g => g.visible), true)[0];
+  if (prise) {
+    let g = prise.object;
+    while (!g.userData.point) g = g.parent;
+    s.choisi = s.choisi === g.userData.point ? null : g.userData.point;
+    majElec();
+    return;
+  }
+  const mur = rayonMeuble.intersectObjects(piecesDeMur.filter(m => m.visible), false)[0];
+  if (!mur?.face) { if (s.choisi) { s.choisi = null; majElec(); } return; }
+  const n = mur.face.normal.clone().transformDirection(mur.object.matrixWorld);
+  if (Math.abs(n.y) > 0.3) return; // dessus d'un mur coupé : pas une face verticale
+  n.y = 0; n.normalize();
+  const t = TYPES_ELEC[s.type], niv = mur.object.userData.niveau === 1 ? 1 : 0;
+  const p = {
+    id: 'e' + Date.now().toString(36), type: s.type, etat: s.etat || (phase === 'apres' ? 'nouveau' : 'existant'),
+    x: Math.round((mur.point.x + n.x * 0.006) * 1000) / 10, y: Math.round(-(mur.point.z + n.z * 0.006) * 1000) / 10,
+    z: t.z, a: Math.round(Math.atan2(n.x, n.z) * 1000) / 1000, niv,
+  };
+  s.points.push(p);
+  dessinerPoint(p);
+  s.choisi = null;
+  sauverElec();
+  majElec();
+});
+
 const versSol = e => {
   const r = rendu.domElement.getBoundingClientRect();
   pointeur.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);

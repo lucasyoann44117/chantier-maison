@@ -95,6 +95,14 @@
       };
       // Objets 3D (fichiers .glb) : stockage privé « objets3d », lu avec la session du foyer.
       // Absent ou illisible → null, la maquette garde alors le meuble simplifié.
+      // Prises et interrupteurs (bouton ⚡), partagés par le foyer (ligne « electricite »).
+      const { data: electricite } = await sb.from('maquette').select('donnees').eq('id', 'electricite').maybeSingle();
+      window.MAISON_ELEC = electricite?.donnees || null;
+      window.MAISON_SAUVER_ELEC = async d => {
+        const { error: erreur } = await sb.from('maquette')
+          .upsert({ id: 'electricite', donnees: d, updated_at: new Date().toISOString() });
+        if (erreur) throw new Error(erreur.message);
+      };
       const objets3d = {};
       window.MAISON_OBJET3D = nom => objets3d[nom] ||= sb.storage.from('objets3d').download(`${nom}.glb`)
         .then(({ data }) => data ? URL.createObjectURL(data) : null, () => null);
