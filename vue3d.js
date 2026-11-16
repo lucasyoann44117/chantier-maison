@@ -492,6 +492,15 @@ for (const p of pieces) {
   // Le plafond fait de l'ombre : le soleil n'entre que par les fenêtres.
   ajouter(plafond, p.phase, true);
   plafonds.push(plafond);
+  // plafondPeint : [{ poly, couleur }] = zone du plafond peinte (ex. au-dessus de la cuisine).
+  for (const z of p.plafondPeint || []) {
+    const g = new THREE.ShapeGeometry(formeDe(z.poly));
+    g.rotateX(-Math.PI / 2);
+    const peint = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: z.couleur, roughness: 0.95, side: THREE.DoubleSide }));
+    peint.position.y = H - 0.004;
+    ajouter(peint, p.phase, false);
+    plafonds.push(peint);
+  }
 }
 
 // Pièces de part et d'autre d'une ouverture (à une demi-épaisseur de mur + 15 cm).
