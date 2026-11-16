@@ -1105,6 +1105,15 @@ const MODELES = {
       g.add(b);
     }
   } },
+  // Coussins muraux carrés posés en grille : colonnes × rangs de c cm (épaisseur p), joints fins.
+  coussinsMuraux: { construire(g, o) {
+    const c = o.cote || 45, nx = o.colonnes || Math.round(o.l / c), ny = o.rangs || Math.round(o.h / c), e = o.p || 3.7;
+    for (let i = 0; i < nx; i++) for (let k = 0; k < ny; k++) {
+      const x = -nx * c / 2 + c / 2 + i * c, y = c / 2 + k * c;
+      piece3d(g, c - 0.6, c - 0.6, e - 0.8, x, y, 0, o.couleur || '#d8ccb6');
+      piece3d(g, c - 3, c - 3, 0.8, x, y, e / 2 - 0.2, o.couleur || '#d8ccb6'); // bombé du coussin
+    }
+  } },
   // Coussin / galette d'assise : pavé souple l × p × h, posé à z cm (sur un banc).
   coussin: { construire(g, o) {
     piece3d(g, o.l, o.h, o.p, 0, o.h / 2, 0, o.couleur || '#3f9e9a');
@@ -1729,7 +1738,7 @@ function choisirMeuble(g) {
 function nomEtReference(o) {
   const r = o.ref;
   if (!r) return esc(o.nom || o.id);
-  const prix = r.prix ? `${Number(r.prix).toLocaleString('fr-FR')} €` : '';
+  const prix = r.prix ? `${Number(r.prix).toLocaleString('fr-FR')} ${r.devise || '€'}` : '';
   return `${esc(o.nom || o.id)}<small style="font-weight:400;opacity:.8"> · ${esc([r.magasin, r.nom].filter(Boolean).join(' '))}${prix ? ` · ${prix}` : ''}</small>` +
     (r.url ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:#f5b800">Voir</a>` : '');
 }
