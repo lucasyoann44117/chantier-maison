@@ -670,6 +670,9 @@ try { positionsMeubles = window.MAISON_MOBILIER || JSON.parse(localStorage.getIt
 // Version de la disposition : quand les places d'origine sont refaites, les positions
 // enregistrées avant ne valent plus et sont ignorées (une seule fois).
 const VERSION_MOBILIER = 3; // 3 : salon recalé sur les photos du 16/11/2026
+// Objets ajoutés par le foyer (achats prévus…) : { id, nom, modele, l, p, h, couleur… }.
+// Ils survivent à un changement de version (ils repartent alors en réserve).
+const ajouts = Array.isArray(positionsMeubles?._ajouts) ? positionsMeubles._ajouts : [];
 if (positionsMeubles?._version !== VERSION_MOBILIER) positionsMeubles = {};
 const matsMeuble = {};
 function matMeuble(nom) {
@@ -705,13 +708,28 @@ function piece3d(g, l, h, p, x, y, z, mat, rx = 0, rz = 0) {
   g.add(m);
   return m;
 }
+// Barre ou lame (cm) tendue entre deux points a et b [x, y, z] du repère du meuble.
+function barre3d(g, a, b, larg, ep, mat) {
+  const A = new THREE.Vector3(...a.map(M)), B = new THREE.Vector3(...b.map(M)), d = B.clone().sub(A);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(M(larg), d.length(), M(ep)), matMeuble(mat));
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  g.add(m);
+  return m;
+}
 const MODELES = {
-  // Table à rallonge : plateau effet céramique gris 200 × 95, pieds en métal noir en biais.
+  // Table à rallonge (photos de Yoann, 16/11) : plateau céramique gris 200 × 95 en deux
+  // moitiés (joint au milieu), chant brun, ceinture noire, et sur chaque grand côté deux
+  // pieds en V (deux lames noires jointes au sol, l'une penchée vers le bout de la table).
   table: { l: 95, p: 200, construire(g) {
-    piece3d(g, 95, 1.8, 200, 0, 74, 0, 'ceramique');
-    piece3d(g, 85, 6, 180, 0, 70, 0, 'metalNoir');
+    piece3d(g, 95, 1.2, 200, 0, 75.4, 0, 'ceramique');
+    piece3d(g, 95, 1, 200, 0, 74.3, 0, 'boisFonce');
+    piece3d(g, 95, 0.2, 0.4, 0, 76.05, 0, 'noir'); // joint de la rallonge
+    piece3d(g, 84, 7, 176, 0, 70.3, 0, 'metalNoir');
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      piece3d(g, 2, 74, 8, sx * 36, 37, sz * 78, 'metalNoir', sz * 0.16, -sx * 0.06);
+      const pied = [sx * 44, 0, sz * 66];
+      barre3d(g, pied, [sx * 39, 67, sz * 52], 7, 2, 'metalNoir');
+      barre3d(g, pied, [sx * 39, 67, sz * 86], 7, 2, 'metalNoir');
     }
   } },
   // Chaise en chêne massif : assise 44 × 43 à 46 cm, dossier plein.
@@ -725,26 +743,45 @@ const MODELES = {
     piece3d(g, 42, 20, 2.5, 0, 76, -21, b, -0.08);           // dossier
   } },
   // Chaise pliante de bistrot : armature blanche, lattes de bois.
+  // Photos de Yoann (16/11) : de face, pieds droits avec une barre en bas ; de côté, les
+  // pieds se croisent en X (le montant du dossier descend jusqu'au pied avant, le pied
+  // arrière part de l'avant de l'assise). Assise 5 lattes, dossier 2 lattes.
   chaisePliante: { l: 42, p: 46, construire(g) {
-    for (let k = 0; k < 4; k++) piece3d(g, 38, 1.5, 8, 0, 45, -14 + k * 9.5, 'lattes');
-    // Pieds droits, sans croix (remarque de Yoann) : avant jusqu'à l'assise, arrière jusqu'au dossier.
+    for (let k = 0; k < 5; k++) piece3d(g, 40, 1.5, 6.5, 0, 45, -15 + k * 7.6, 'boisClair');
     for (const sx of [-1, 1]) {
-      piece3d(g, 2, 45, 2, sx * 19, 22.5, 18, 'metalBlanc');
-      piece3d(g, 2, 86, 2, sx * 19, 43, -16, 'metalBlanc', 0.08);
+      const x = sx * 19;
+      barre3d(g, [x, 0, 15], [x, 45, -18], 2, 1.2, 'metalBlanc');   // pied avant → arrière de l'assise
+      barre3d(g, [x, 45, -18], [x, 88, -22], 2.5, 1.2, 'metalBlanc'); // montant du dossier
+      barre3d(g, [x, 44, 17], [x, 0, -17], 1.6, 1.6, 'metalBlanc');  // pied arrière, croise le premier
+      barre3d(g, [x, 44, -18], [x, 44, 17], 1.6, 1.6, 'metalBlanc'); // cadre de l'assise
     }
-    for (const y of [70, 82]) piece3d(g, 36, 6, 1.5, 0, y, -14, 'lattes', 0.3);
+    piece3d(g, 38, 1, 1, 0, 6, 14, 'metalBlanc');   // barre basse entre les pieds avant
+    piece3d(g, 38, 1, 1, 0, 6, -16, 'metalBlanc');
+    piece3d(g, 44, 6.5, 1.5, 0, 72, -20.5, 'boisClair', -0.1);
+    piece3d(g, 46, 7, 1.5, 0, 84, -21.7, 'boisClair', -0.1);
   } },
   // Vaisselier blanc : buffet bas (3 portes, 3 tiroirs) et haut vitré (3 portes coulissantes).
+  // Photos de Yoann (16/11) : bas à 3 tiroirs, un tiroir central dessous, 3 portes, boutons
+  // blancs, plinthe ; haut à 3 portes coulissantes vitrées de 2 × 2 carreaux, poignées
+  // noires encastrées, corniche moulurée.
   vaisselier: { l: 152, p: 50, construire(g) {
-    piece3d(g, 150, 86, 48, 0, 47, 0, 'blanc');
-    piece3d(g, 154, 4, 52, 0, 92, 0, 'blanc');
-    piece3d(g, 150, 4, 46, 0, 2, 0, 'blanc');
-    for (const x of [-25, 25]) piece3d(g, 0.6, 52, 0.4, x, 30, 24.2, 'joint');
-    piece3d(g, 150, 0.6, 0.4, 0, 60, 24.2, 'joint');
-    for (const x of [-25, 25]) piece3d(g, 0.6, 26, 0.4, x, 75, 24.2, 'joint');
-    piece3d(g, 140, 112, 36, 0, 150, -6, 'blanc');
-    for (const x of [-46, 0, 46]) for (const y of [122, 150, 178]) piece3d(g, 38, 24, 0.6, x, y, 12.4, 'vitre');
-    piece3d(g, 158, 7, 44, 0, 209.5, -6, 'blanc');
+    piece3d(g, 150, 10, 48, 0, 5, 0, 'blanc');
+    piece3d(g, 146, 76, 45, 0, 48, -0.5, 'blanc');
+    piece3d(g, 154, 3, 51, 0, 87.5, 0.5, 'blanc');
+    const z = 22.4, bouton = (x, y) => piece3d(g, 3, 3, 2.5, x, y, z + 1, 'porcelaine');
+    piece3d(g, 146, 0.6, 0.4, 0, 71, z, 'joint');
+    for (const x of [-24.5, 24.5]) piece3d(g, 0.6, 74, 0.4, x, 47, z, 'joint');
+    piece3d(g, 49, 0.6, 0.4, 0, 57, z, 'joint');
+    for (const x of [-48, 0, 48]) bouton(x, 78);
+    bouton(0, 64); bouton(-30, 46); bouton(30, 46); bouton(-14, 40);
+    piece3d(g, 144, 113, 36, 0, 145.5, -7, 'blanc');
+    for (const [k, x] of [-47, 0, 47].entries()) {
+      for (const dx of [-10.5, 10.5]) for (const y of [122, 168]) piece3d(g, 18, 40, 0.6, x + dx, y, 11.4, 'vitre');
+      piece3d(g, 0.6, 108, 0.4, x + 23.5, 145, 11.5, 'joint');
+      piece3d(g, 2, 8, 0.5, x + (k === 2 ? -20 : 20), 145, 11.6, 'noir'); // poignée encastrée
+    }
+    piece3d(g, 152, 3, 40, 0, 203.5, -6, 'blanc');
+    piece3d(g, 158, 8, 44, 0, 209, -6, 'blanc');
   } },
   // Meuble bas en bois : deux tiroirs vitrés et deux portes coulissantes.
   buffetBois: { l: 112, p: 46, construire(g) {
@@ -1020,9 +1057,12 @@ function construireMeuble(o) {
   const defauts = { avant: { x: o.x, y: o.y, angle: o.angle ?? 0 } };
   const [ax, ay, aa] = String(o.apres ?? '').split(',').map(Number);
   defauts.apres = o.apres ? { x: ax, y: ay, angle: aa || 0 } : { ...defauts.avant };
+  // Une place peut porter reserve: true : le meuble est rangé dans la réserve pour cette
+  // phase (invisible, ne gêne pas). Un objet ajouté sans place enregistrée est en réserve.
+  const defaut = ph => o.ajout ? { ...defauts[ph], reserve: true } : defauts[ph];
   const places = o.fixe ? { avant: defauts.avant, apres: defauts.apres } : {
-    avant: positionsMeubles[o.id] ?? defauts.avant,
-    apres: positionsMeubles[o.id + '@apres'] ?? defauts.apres,
+    avant: positionsMeubles[o.id] ?? defaut('avant'),
+    apres: positionsMeubles[o.id + '@apres'] ?? defaut('apres'),
   };
   g.userData = { phase: o.phase, meuble: o, defauts, places, ...places.apres };
   if (o.niveau) g.userData.niveau = 1;
@@ -1036,7 +1076,9 @@ function construireMeuble(o) {
   g.userData.obstacle = { cx: 0, cz: 0, angle: 0, hl: o.libre || o.z ? 0 : (boite.max.x - boite.min.x) / 2, he: o.libre || o.z ? 0 : (boite.max.z - boite.min.z) / 2, phase: o.phase, niveau: o.niveau ? 1 : 0 };
   obstacles.push(g.userData.obstacle);
   placerMeuble(g);
-  if (o.glb) chargerObjet3d(g, o);
+  // Objet ajouté : son modèle 3D, s'il a été fabriqué, porte son id (objets3d/<id>.glb).
+  if (o.glb || o.ajout) chargerObjet3d(g, o);
+  return g;
 }
 // Objet 3D fabriqué sur le PC d'après une photo (objets3d/<id>.glb, Hunyuan3D-2) : il
 // remplace le modèle simple une fois chargé, mis aux cotes l × p × h de l'ordre et tourné
@@ -1074,9 +1116,10 @@ function placerMeuble(g) {
   g.position.set(M(x), (o.niveau ? BASE_ETAGE : 0) + M(o.z || 0), -M(y));
   g.rotation.y = a;
   const cos = Math.cos(a), sin = Math.sin(a);
-  Object.assign(g.userData.obstacle, { cx: M(x) + d.x * cos + d.z * sin, cz: -M(y) - d.x * sin + d.z * cos, angle: a });
+  Object.assign(g.userData.obstacle, { cx: M(x) + d.x * cos + d.z * sin, cz: -M(y) - d.x * sin + d.z * cos, angle: a, range: !!g.userData.reserve });
 }
 for (const o of objets) if (o.type === 'meuble') construireMeuble(o);
+for (const o of ajouts) construireMeuble({ ...o, type: 'meuble', ajout: true });
 
 function tabouret(o) {
   const groupe = new THREE.Group();
@@ -1533,14 +1576,15 @@ let voirEtage = false;
 const niveauMontre = niv => mode === 'visite' || (niv === 1) === voirEtage || (!niv && !voirEtage);
 function appliquerPhase() {
   // Chaque meuble reprend sa place de la phase affichée.
-  for (const g of meubles) { Object.assign(g.userData, g.userData.places[phase]); placerMeuble(g); }
+  for (const g of meubles) { Object.assign(g.userData, { reserve: false }, g.userData.places[phase]); placerMeuble(g); }
   for (const e of elements) {
-    e.visible = visible(e.userData.phase) && (mode === 'visite' || !plafonds.includes(e)) &&
+    e.visible = visible(e.userData.phase) && !e.userData.reserve && (mode === 'visite' || !plafonds.includes(e)) &&
       (e.userData.niveau !== 1 || mode === 'visite' || voirEtage) &&
       (!e.userData.toitDehors || mode === 'visite' || voirToit);
   }
   reglerLampes(mode === 'visite');
   reglerCotes();
+  majReserve();
 }
 
 const camEnsemble = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
@@ -1563,9 +1607,9 @@ const cadre = new THREE.BoxHelper(undefined, '#f5b800');
 cadre.visible = false;
 scene.add(cadre);
 const barreMeuble = document.createElement('div');
-barreMeuble.style.cssText = 'position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:5;display:none;gap:6px;align-items:center;background:#1e2429;color:#fff;padding:6px 8px;border-radius:999px;font:600 13px system-ui;box-shadow:0 4px 14px rgb(0 0 0 / .3)';
+barreMeuble.style.cssText = 'position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:5;display:none;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;gap:6px;align-items:center;background:#1e2429;color:#fff;padding:6px 8px;border-radius:22px;font:600 13px system-ui;box-shadow:0 4px 14px rgb(0 0 0 / .3)';
 barreMeuble.innerHTML = '<span id="nom-meuble" style="padding:0 6px"></span>' +
-  ['↺ 15°|-15', '↻ 15°|15', '↻ 90°|90', 'Origine|origine', 'OK|ok'].map(t => {
+  ['↺ 15°|-15', '↻ 15°|15', '↻ 90°|90', 'Origine|origine', '📦 Ranger|ranger', 'OK|ok'].map(t => {
     const [lib, val] = t.split('|');
     return `<button data-tourner="${val}" style="font:inherit;border:0;border-radius:999px;padding:6px 10px;background:${val === 'ok' ? '#f5b800' : '#38424a'};color:${val === 'ok' ? '#1e2429' : '#fff'};cursor:pointer">${lib}</button>`;
   }).join('');
@@ -1578,7 +1622,7 @@ function choisirMeuble(g) {
   if (g) barreMeuble.querySelector('#nom-meuble').textContent = g.userData.meuble.nom;
 }
 // Meubles qui suivent celui-ci (option suit=id : les chaises suivent la table).
-const suiveurs = g => meubles.filter(f => f.userData.meuble.suit === g.userData.meuble.id && visible(f.userData.phase));
+const suiveurs = g => meubles.filter(f => f.userData.meuble.suit === g.userData.meuble.id && visible(f.userData.phase) && !f.userData.reserve);
 // Déplace et tourne un meuble ; ceux qui le suivent gardent leur place autour de lui.
 function bougerMeuble(g, x, y, angle) {
   const u = g.userData, da = (angle - u.angle) * Math.PI / 180, c = Math.cos(da), s = Math.sin(da);
@@ -1595,7 +1639,8 @@ function bougerMeuble(g, x, y, angle) {
 function sauverMeubles() {
   clearTimeout(minuterieSauvegarde);
   minuterieSauvegarde = setTimeout(async () => {
-    const pos = { _version: VERSION_MOBILIER }, arrondi =p => ({ x: Math.round(p.x), y: Math.round(p.y), angle: p.angle });
+    const pos = { _version: VERSION_MOBILIER, _ajouts: ajouts },
+      arrondi = p => ({ x: Math.round(p.x), y: Math.round(p.y), angle: p.angle, ...(p.reserve && { reserve: true }) });
     for (const g of meubles) {
       pos[g.userData.meuble.id] = arrondi(g.userData.places.avant);
       pos[g.userData.meuble.id + '@apres'] = arrondi(g.userData.places.apres);
@@ -1611,6 +1656,14 @@ barreMeuble.addEventListener('click', e => {
   if (!v || !meubleChoisi) return;
   if (v === 'ok') { choisirMeuble(null); return; }
   const u = meubleChoisi.userData;
+  if (v === 'ranger') {
+    // Dans la réserve pour cette phase seulement ; il garde sa place dans l'autre.
+    u.places[phase] = { ...u.places[phase], reserve: true };
+    choisirMeuble(null);
+    appliquerPhase();
+    sauverMeubles();
+    return;
+  }
   if (v === 'origine') {
     // Remet le meuble et ceux qui le suivent à leur place d'origine pour cette phase.
     for (const g of [meubleChoisi, ...suiveurs(meubleChoisi)]) {
@@ -1626,7 +1679,138 @@ document.getElementById('meubles')?.addEventListener('click', () => {
   modeMeubles = !modeMeubles;
   document.getElementById('meubles').setAttribute('aria-pressed', String(modeMeubles));
   if (!modeMeubles) choisirMeuble(null);
+  majReserve();
 });
+
+// ---------- Réserve et objets ajoutés (mode Meubles) ----------
+// Bouton « Réserve » : liste des meubles rangés dans la phase affichée (Reprendre les pose
+// au centre de la vue) et formulaire pour ajouter un objet (achat prévu : canapé…).
+const TYPES_AJOUT = {
+  canape: { lib: 'Canapé', modele: 'canape', l: 220, p: 95, h: 85, couleur: '#8e9196' },
+  fauteuil: { lib: 'Fauteuil', modele: 'canape', l: 85, p: 85, h: 85, couleur: '#8e9196' },
+  table: { lib: 'Table', modele: 'bureau', l: 180, p: 90, h: 75, couleur: '#c99a63' },
+  tableBasse: { lib: 'Table basse', modele: 'tableBasse', l: 110, p: 60, h: 42, couleur: '#c99a63' },
+  chaise: { lib: 'Chaise', modele: 'chaise', l: 44, p: 46, h: 90, couleur: '#c99a63' },
+  lit: { lib: 'Lit', modele: 'lit', l: 160, p: 200, h: 45, couleur: '#f3f1ea' },
+  armoire: { lib: 'Armoire', modele: 'caisson', l: 100, p: 60, h: 200, couleur: '#f3f1ea', rangs: 'P2' },
+  meubleBas: { lib: 'Meuble bas, buffet', modele: 'caisson', l: 120, p: 45, h: 80, couleur: '#f3f1ea', rangs: 'T2:20,P2' },
+  etagere: { lib: 'Étagère', modele: 'caisson', l: 80, p: 35, h: 180, couleur: '#f3f1ea', rangs: 'O1:45,O1:45,O1:45,O1' },
+  pouf: { lib: 'Pouf rond', modele: 'pouf', l: 50, p: 50, h: 42, couleur: '#8e9196' },
+  tapis: { lib: 'Tapis', modele: 'tapis', l: 200, p: 140, h: 1, couleur: '#9a9a98', libre: true },
+};
+const styleBouton = 'font:600 13px system-ui;border:0;border-radius:999px;padding:6px 12px;cursor:pointer';
+// Créés au premier appel : appliquerPhase (qui appelle majReserve) peut tourner avant cette ligne.
+function uiReserve() {
+  if (uiReserve.ui) return uiReserve.ui;
+  const bouton = document.createElement('button');
+  // En haut à droite, sous la barre d'outils : la barre du meuble choisi occupe le bas.
+  bouton.style.cssText = `position:fixed;right:12px;top:var(--haut-reserve,110px);z-index:5;display:none;background:#1e2429;color:#fff;box-shadow:0 4px 14px rgb(0 0 0 / .3);${styleBouton}`;
+  const panneau = document.createElement('div');
+  panneau.style.cssText = 'position:fixed;right:12px;top:calc(var(--haut-reserve,110px) + 40px);z-index:6;display:none;width:min(320px,calc(100vw - 24px));max-height:60vh;overflow:auto;background:#1e2429;color:#fff;border-radius:14px;padding:10px;font:14px system-ui;box-shadow:0 8px 24px rgb(0 0 0 / .4)';
+  document.body.append(bouton, panneau);
+  bouton.onclick = () => {
+    panneau.style.display = panneau.style.display === 'none' ? 'block' : 'none';
+    dessinerReserve();
+  };
+  panneau.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const g = meubles.find(m => m.userData.meuble.id === b.dataset.id);
+    if (b.dataset.action === 'reprendre' && g) reprendre(g);
+    else if (b.dataset.action === 'supprimer' && g && confirm(`Supprimer « ${g.userData.meuble.nom} » pour de bon ?`)) supprimerAjout(g);
+    else if (b.dataset.action === 'nouveau') { uiReserve.form = true; dessinerReserve(); }
+    else if (b.dataset.action === 'annuler') { uiReserve.form = false; dessinerReserve(); }
+    else if (b.dataset.action === 'creer') creerAjout(panneau);
+  });
+  panneau.addEventListener('change', e => {
+    // Changer de type remet les cotes et la couleur habituelles de ce type.
+    if (e.target.name !== 'type') return;
+    const t = TYPES_AJOUT[e.target.value];
+    for (const k of ['l', 'p', 'h', 'couleur']) panneau.querySelector(`[name=${k}]`).value = t[k];
+  });
+  return (uiReserve.ui = { bouton, panneau });
+}
+const rangés = () => meubles.filter(g => visible(g.userData.phase) && g.userData.places[phase]?.reserve);
+function majReserve() {
+  const { bouton, panneau } = uiReserve(), actif = modeMeubles && mode === 'ensemble';
+  bouton.style.display = actif ? 'block' : 'none';
+  // Juste sous la barre d'outils, quelle que soit sa hauteur (elle passe sur deux lignes au téléphone).
+  const barre = document.querySelector('.barre');
+  if (actif && barre) document.body.style.setProperty('--haut-reserve', `${Math.round(barre.getBoundingClientRect().bottom) + 8}px`);
+  if (!actif) panneau.style.display = 'none';
+  bouton.textContent = `📦 Réserve (${rangés().length})`;
+  if (panneau.style.display !== 'none') dessinerReserve();
+}
+const echapper = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function dessinerReserve() {
+  const { panneau } = uiReserve();
+  if (uiReserve.form) {
+    const t = TYPES_AJOUT.canape, champ = 'width:100%;box-sizing:border-box;font:inherit;padding:6px;border-radius:8px;border:0;margin:2px 0 8px';
+    panneau.innerHTML = `<b>Nouvel objet</b>
+      <label style="display:block;margin-top:8px">Nom<input name="nom" placeholder="Canapé à acheter" style="${champ}"></label>
+      <label style="display:block">Type<select name="type" style="${champ}">${Object.entries(TYPES_AJOUT).map(([k, v]) => `<option value="${k}">${v.lib}</option>`).join('')}</select></label>
+      <div style="display:flex;gap:6px">${[['l', 'Largeur'], ['p', 'Profondeur'], ['h', 'Hauteur']].map(([k, lib]) =>
+        `<label style="flex:1">${lib}<input name="${k}" type="number" min="1" value="${t[k]}" style="${champ}"></label>`).join('')}</div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+        <label>Couleur <input name="couleur" type="color" value="${t.couleur}"></label>
+        <label><input name="etage" type="checkbox"> À l'étage</label></div>
+      <div style="display:flex;gap:6px;justify-content:flex-end">
+        <button data-action="annuler" style="${styleBouton};background:#38424a;color:#fff">Annuler</button>
+        <button data-action="creer" style="${styleBouton};background:#f5b800;color:#1e2429">Ajouter</button></div>
+      <p style="margin:8px 0 0;color:#aab;font-size:12px">Cotes en cm. Il est posé au centre de la vue ; dans l'autre phase, il reste en réserve.</p>`;
+    return;
+  }
+  const liste = rangés();
+  panneau.innerHTML = `<b>Réserve (${phase === 'apres' ? 'après travaux' : 'avant travaux'})</b>` +
+    (liste.length ? liste.map(g => {
+      const o = g.userData.meuble;
+      return `<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><span style="flex:1">${echapper(o.nom || o.id)}</span>` +
+        (o.ajout ? `<button data-action="supprimer" data-id="${o.id}" title="Supprimer" style="${styleBouton};background:#38424a;color:#fff">✕</button>` : '') +
+        `<button data-action="reprendre" data-id="${o.id}" style="${styleBouton};background:#f5b800;color:#1e2429">Reprendre</button></div>`;
+    }).join('') : '<p style="color:#aab;margin:8px 0">Rien en réserve. Choisir un meuble puis « 📦 Ranger ».</p>') +
+    `<button data-action="nouveau" style="${styleBouton};margin-top:12px;width:100%;background:#38424a;color:#fff">＋ Nouvel objet</button>`;
+}
+// Pose le meuble au centre de la vue (au bon niveau) et le sélectionne pour le placer.
+function poserAuCentre(g) {
+  const etage = !!g.userData.meuble.niveau;
+  if (etage !== voirEtage) {
+    voirEtage = etage;
+    document.getElementById('etage')?.setAttribute('aria-pressed', String(voirEtage));
+  }
+  g.userData.places[phase] = { x: Math.round(orbite.target.x * 100), y: Math.round(-orbite.target.z * 100), angle: g.userData.places[phase]?.angle || 0 };
+  appliquerPhase();
+  choisirMeuble(g);
+  sauverMeubles();
+}
+function reprendre(g) {
+  uiReserve().panneau.style.display = 'none';
+  poserAuCentre(g);
+}
+function creerAjout(panneau) {
+  const v = k => panneau.querySelector(`[name=${k}]`), type = TYPES_AJOUT[v('type').value];
+  const cote = k => Math.max(1, Math.round(+v(k).value || type[k])), c = v('couleur').value;
+  const o = {
+    id: 'ajout-' + Date.now().toString(36), nom: v('nom').value.trim() || type.lib, modele: type.modele,
+    l: cote('l'), p: cote('p'), h: cote('h'), couleur: c, mat: c, teinte: c, angle: 0,
+    x: Math.round(orbite.target.x * 100), y: Math.round(-orbite.target.z * 100),
+    ...(type.rangs && { rangs: type.rangs }), ...(type.libre && { libre: true }), ...(v('etage').checked && { niveau: 1 }),
+  };
+  ajouts.push(o);
+  const g = construireMeuble({ ...o, type: 'meuble', ajout: true });
+  uiReserve.form = false;
+  panneau.style.display = 'none';
+  poserAuCentre(g); // l'autre phase garde la réserve par défaut
+}
+function supprimerAjout(g) {
+  const id = g.userData.meuble.id;
+  ajouts.splice(ajouts.findIndex(o => o.id === id), 1);
+  for (const liste of [meubles, elements]) liste.splice(liste.indexOf(g), 1);
+  obstacles.splice(obstacles.indexOf(g.userData.obstacle), 1);
+  scene.remove(g);
+  if (meubleChoisi === g) choisirMeuble(null);
+  sauverMeubles();
+  majReserve();
+}
 const versSol = e => {
   const r = rendu.domElement.getBoundingClientRect();
   pointeur.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -1751,7 +1935,7 @@ const RAYON = 0.22;
 function collisions() {
   for (let passe = 0; passe < 3; passe++) {
     for (const o of obstacles) {
-      if (!visible(o.phase) || (o.niveau || 0) !== joueur.niveau) continue;
+      if (o.range || !visible(o.phase) || (o.niveau || 0) !== joueur.niveau) continue;
       // Repère local de l'obstacle (axe du mur : angle autour de Y, Z inversé).
       const dx = joueur.x - o.cx, dz = joueur.z - o.cz;
       const c = Math.cos(o.angle), s = Math.sin(o.angle);
