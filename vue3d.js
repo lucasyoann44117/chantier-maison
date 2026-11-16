@@ -476,6 +476,7 @@ function formeTrouee(poly, [x0, y0, x1, y1]) {
 }
 
 const plafonds = [];
+const plafondsRdc = []; // plafonds des pièces du RDC, montrés en transparence (bouton Plafonds)
 for (const p of pieces) {
   const geo = new THREE.ShapeGeometry(formeDe(p.poly));
   geo.rotateX(-Math.PI / 2); // (x, y) du plan → (X, -Z)
@@ -492,14 +493,17 @@ for (const p of pieces) {
   // Le plafond fait de l'ombre : le soleil n'entre que par les fenêtres.
   ajouter(plafond, p.phase, true);
   plafonds.push(plafond);
+  plafondsRdc.push(plafond);
   // plafondPeint : [{ poly, couleur }] = zone du plafond peinte (ex. au-dessus de la cuisine).
   for (const z of p.plafondPeint || []) {
     const g = new THREE.ShapeGeometry(formeDe(z.poly));
     g.rotateX(-Math.PI / 2);
     const peint = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: z.couleur, roughness: 0.95, side: THREE.DoubleSide }));
     peint.position.y = H - 0.004;
+    peint.userData.peint = true;
     ajouter(peint, p.phase, false);
     plafonds.push(peint);
+    plafondsRdc.push(peint);
   }
 }
 
@@ -1070,6 +1074,22 @@ const MODELES = {
     piece3d(g, l - 16, 38, 14, -s * 7, 55, -p / 2 + 8, '#c9c6bf');
     piece3d(g, 14, 30, p - 14, s * (l / 2 - 8), 51, 6, '#c9c6bf');
   } },
+  // Banquette de table en velours (projet, photos du 16/11) : assise et dossier capitonnés à
+  // coutures verticales, dossier légèrement incliné aux bords évasés, 4 pieds noirs écartés.
+  banquette: { construire(g, o) {
+    const { l, p } = o, h = o.h || 86, c = o.couleur || '#5a5452', ligne = '#3f3a39', pieds = 'metalNoir';
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const haut = [sx * (l / 2 - 18), 38, sz * (p / 2 - 14)], bas = [sx * (l / 2 - 6), 0, sz * (p / 2 - 6)];
+      barre3d(g, bas, haut, 3, 3, pieds);
+    }
+    piece3d(g, l - 6, 10, p - 6, 0, 43, 3, c);
+    const n = Math.round(l / 16);
+    for (let k = 1; k < n; k++) piece3d(g, 0.5, 0.4, p - 12, -l / 2 + 3 + k * (l - 6) / n, 48.1, 3, ligne);
+    const dos = piece3d(g, l, h - 46, 9, 0, 46 + (h - 46) / 2, -p / 2 + 6, c, -0.14);
+    for (let k = 1; k < n; k++) piece3d(g, 0.5, h - 52, 0.4, -l / 2 + k * l / n, 46 + (h - 46) / 2, -p / 2 + 10.9, ligne, -0.14);
+    for (const sx of [-1, 1]) piece3d(g, 6, h - 46, 14, sx * (l / 2 - 1), 46 + (h - 46) / 2, -p / 2 + 9, c, -0.14, sx * 0.12);
+    return dos;
+  } },
   // Patère murale : planche et crochets (n = nombre de crochets), accrochée à z cm.
   patere: { construire(g, o) {
     const n = o.n || 6, m = o.mat || 'blanc';
@@ -1097,7 +1117,8 @@ function construireMeuble(o) {
   // Une place peut porter reserve: true : le meuble est rangé dans la réserve pour cette
   // phase (invisible, ne gêne pas). Un objet ajouté sans place enregistrée est en réserve.
   // reserve=1 dans un ordre : meuble connu mais pas encore placé (Yoann le sort de la réserve).
-  const defaut = ph => (o.ajout || o.reserve) ? { ...defauts[ph], reserve: true } : defauts[ph];
+  // reserve='avant' ou 'apres' : en réserve dans cette phase seulement.
+  const defaut = ph => (o.ajout || o.reserve === 1 || o.reserve === true || o.reserve === ph) ? { ...defauts[ph], reserve: true } : defauts[ph];
   const places = o.fixe ? { avant: defauts.avant, apres: defauts.apres } : {
     avant: positionsMeubles[o.id] ?? defaut('avant'),
     apres: positionsMeubles[o.id + '@apres'] ?? defaut('apres'),
@@ -1587,6 +1608,28 @@ document.getElementById('toit')?.addEventListener('click', () => {
   document.getElementById('toit').setAttribute('aria-pressed', String(voirToit));
   appliquerPhase();
 });
+// Bouton Plafonds (vue d'ensemble) : plafonds du RDC en transparence, les zones peintes
+// (plafond vert de la cuisine) bien visibles par-dessus.
+let voirPlafonds = false;
+function reglerPlafonds() {
+  const transparent = mode !== 'visite';
+  for (const m of plafondsRdc) {
+    const mat = m.material;
+    mat.transparent = transparent;
+    mat.opacity = transparent ? (m.userData.peint ? 0.75 : 0.12) : 1;
+    mat.depthWrite = !transparent;
+  }
+}
+const boutonPlafonds = document.createElement('button');
+boutonPlafonds.id = 'plafonds';
+boutonPlafonds.setAttribute('aria-pressed', 'false');
+boutonPlafonds.textContent = '⬜ Plafonds';
+document.getElementById('toit')?.after(boutonPlafonds);
+boutonPlafonds.addEventListener('click', () => {
+  voirPlafonds = !voirPlafonds;
+  boutonPlafonds.setAttribute('aria-pressed', String(voirPlafonds));
+  appliquerPhase();
+});
 
 // Hauteur des marches sous les pieds (m), en continu le long de l'escalier ;
 // null hors de la cage.
@@ -1616,12 +1659,14 @@ function appliquerPhase() {
   // Chaque meuble reprend sa place de la phase affichée.
   for (const g of meubles) { Object.assign(g.userData, { reserve: false }, g.userData.places[phase]); placerMeuble(g); }
   for (const e of elements) {
-    e.visible = visible(e.userData.phase) && !e.userData.reserve && (mode === 'visite' || !plafonds.includes(e)) &&
+    e.visible = visible(e.userData.phase) && !e.userData.reserve &&
+      (mode === 'visite' || !plafonds.includes(e) || (voirPlafonds && !voirEtage && plafondsRdc.includes(e))) &&
       (e.userData.niveau !== 1 || mode === 'visite' || voirEtage) &&
       (!e.userData.toitDehors || mode === 'visite' || voirToit);
   }
   reglerLampes(mode === 'visite');
   reglerCotes();
+  reglerPlafonds();
   majReserve();
   majElec();
 }
