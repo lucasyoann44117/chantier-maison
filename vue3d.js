@@ -1040,9 +1040,10 @@ function construireMeuble(o) {
 // Objet 3D fabriqué sur le PC d'après une photo (objets3d/<id>.glb, Hunyuan3D-2) : il
 // remplace le modèle simple une fois chargé, mis aux cotes l × p × h de l'ordre et tourné
 // de glbAngle degrés. S'il manque (appli en ligne, fichier pas encore fait), le modèle simple reste.
-const chargeur3d = new GLTFLoader();
+// (chargeur créé au premier appel : les tabourets sont construits avant ce point du fichier)
 async function chargerObjet3d(g, o) {
   try {
+    const chargeur3d = (chargerObjet3d.chargeur ||= new GLTFLoader());
     // glb: true → objets3d/<id>.glb ; glb: 'nom' → objets3d/<nom>.glb (un modèle pour plusieurs meubles).
     const nom = typeof o.glb === 'string' ? o.glb : o.id;
     const url = window.MAISON_OBJET3D ? await window.MAISON_OBJET3D(nom) : `objets3d/${nom}.glb`;
@@ -1102,6 +1103,7 @@ function tabouret(o) {
   groupe.position.set(M(o.x), 0, -M(o.y));
   // Le dossier est dessiné côté -X local : on tourne le tabouret pour le mettre du côté voulu.
   groupe.rotation.y = ((o.dos ?? 180) - 180) * Math.PI / 180;
+  if (o.glb) chargerObjet3d(groupe, { l: o.diametre || 42, p: o.diametre || 42, h: o.assise || 65, ...o });
   groupe.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   groupe.userData.phase = o.phase;
   scene.add(groupe);
