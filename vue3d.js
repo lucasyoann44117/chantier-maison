@@ -837,8 +837,10 @@ const MODELES = {
   } },
   // Lit : sommier, matelas, couette (linge) sur les deux tiers, oreillers ; tete = tête de lit.
   lit: { construire(g, o) {
-    const { l, p } = o, h = o.h || 45, m = o.mat || 'blanc';
-    piece3d(g, l, h - 20, p, 0, (h - 20) / 2, 0, m);
+    // pieds = hauteur des pieds sous le sommier (lit de Marine : pieds en bois, photos du 16/11).
+    const { l, p } = o, h = o.h || 45, m = o.mat || 'blanc', pz = o.pieds || 0;
+    piece3d(g, l, h - 20 - pz, p, 0, pz + (h - 20 - pz) / 2, 0, m);
+    if (pz) for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 5, pz, 5, sx * (l / 2 - 10), pz / 2, sz * (p / 2 - 12), o.matPieds || 'boisClair');
     piece3d(g, l - 2, 20, p - 2, 0, h - 10, 0, '#f4f2ee');
     piece3d(g, l + 3, 5, p * 0.7, 0, h + 1, p * 0.15, o.linge || '#e9e9e6');
     for (const x of l > 110 ? [-l / 4, l / 4] : [0]) piece3d(g, l > 110 ? l / 2 - 10 : l - 20, 12, 35, x, h + 6, -p / 2 + 22, o.oreiller || '#f6f5f2');
