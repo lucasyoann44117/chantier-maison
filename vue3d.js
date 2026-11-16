@@ -4,6 +4,7 @@
 // Plan (x est, y nord, cm) → scène (X = x, Z = -y, en mètres).
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const { HAUTEUR, murs, pieces, objets, etage } = window.MAISON;
 
 const M = v => v / 100;
@@ -1023,6 +1024,35 @@ function construireMeuble(o) {
   g.userData.obstacle = { cx: 0, cz: 0, angle: 0, hl: o.libre || o.z ? 0 : (boite.max.x - boite.min.x) / 2, he: o.libre || o.z ? 0 : (boite.max.z - boite.min.z) / 2, phase: o.phase, niveau: o.niveau ? 1 : 0 };
   obstacles.push(g.userData.obstacle);
   placerMeuble(g);
+  if (o.glb) chargerObjet3d(g, o);
+}
+// Objet 3D fabriqué sur le PC d'après une photo (objets3d/<id>.glb, Hunyuan3D-2) : il
+// remplace le modèle simple une fois chargé, mis aux cotes l × p × h de l'ordre et tourné
+// de glbAngle degrés. S'il manque (appli en ligne, fichier pas encore fait), le modèle simple reste.
+const chargeur3d = new GLTFLoader();
+async function chargerObjet3d(g, o) {
+  try {
+    const url = window.MAISON_OBJET3D ? await window.MAISON_OBJET3D(o.id) : `objets3d/${o.id}.glb`;
+    if (!url) return;
+    const gltf = await chargeur3d.loadAsync(url);
+    const modele = gltf.scene;
+    modele.rotation.y = (o.glbAngle || 0) * Math.PI / 180;
+    const pivot = new THREE.Group();
+    pivot.add(modele);
+    const boite = new THREE.Box3().setFromObject(pivot), t = boite.getSize(new THREE.Vector3());
+    pivot.scale.set(M(o.l) / t.x, M(o.h) / t.y, M(o.p) / t.z);
+    const c = boite.getCenter(new THREE.Vector3());
+    modele.position.set(-c.x, -boite.min.y, -c.z);
+    pivot.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+    g.clear();
+    g.add(pivot);
+    // Le conduit du poêle n'est pas sur la photo découpée : on le remet jusqu'au plafond.
+    if (o.conduit) {
+      const tuyau = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, M(o.conduit), 16), matMeuble('noir'));
+      tuyau.position.y = M(o.h + o.conduit / 2);
+      g.add(tuyau);
+    }
+  } catch { /* pas de modèle 3D pour cet objet : on garde le modèle simple */ }
 }
 function placerMeuble(g) {
   const { x, y, angle, meuble: o, decale: d } = g.userData, a = angle * Math.PI / 180;
