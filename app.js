@@ -252,7 +252,7 @@
     const sansDate = fiches.filter(f => f.a && !f.debut);
     const ligne = f => {
       // notes : « Assureur. Activités couvertes. »
-      const [assureur, ...reste] = String(f.a?.notes || '').split('. ');
+      const [assureur, ...reste] = String(f.a?.notes || '').replace(/\.$/, '').split('. ');
       const periode = f.a?.valide_au ? `chantiers ouverts ${f.a.valide_du ? `du ${date(f.a.valide_du)} ` : ''}au ${date(f.a.valide_au)}` : '';
       const corps = `<span class="corps"><strong>${esc(f.e)}</strong>
         <small>${esc(f.postes.map(p => p.nom).join(' · '))}</small>
