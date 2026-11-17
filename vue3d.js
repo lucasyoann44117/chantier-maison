@@ -2399,9 +2399,69 @@ function boucle(t) {
       c.el.style.top = `${y}px`;
     }
   }
+  if (rendu.xr.isPresenting) cam = majVR(dt);
   rendu.render(scene, cam);
-  requestAnimationFrame(boucle);
 }
+
+// ---------- Réalité virtuelle (casque SteamVR, via WebXR dans Chrome ou Edge) ----------
+// Bouton 🥽 VR : on entre dans la maison à taille réelle, au point de visite. Joystick gauche :
+// marcher (dans la direction du regard), joystick droit : tourner par crans de 30°, gâchette
+// latérale (grip) : basculer Avant / Après. Les murs et l'escalier se gèrent comme en visite.
+rendu.xr.enabled = true;
+rendu.xr.setReferenceSpaceType('local-floor');
+const chariot = new THREE.Group();
+const camXR = new THREE.PerspectiveCamera(70, 1, 0.05, 120);
+chariot.add(camXR);
+scene.add(chariot);
+let lacetChariot = 0, cranTourne = 0;
+const qTete = new THREE.Quaternion(), eTete = new THREE.Euler();
+function majVR(dt) {
+  // Direction du regard (lacet de la tête dans la maison) : la marche suit le regard.
+  camXR.getWorldQuaternion(qTete);
+  eTete.setFromQuaternion(qTete, 'YXZ');
+  joueur.lacet = eTete.y;
+  marche.x = 0; marche.y = 0;
+  for (const src of rendu.xr.getSession()?.inputSources || []) {
+    const a = src.gamepad?.axes;
+    if (!a || a.length < 4) continue;
+    const ax = Math.abs(a[2]) > 0.15 ? a[2] : 0, ay = Math.abs(a[3]) > 0.15 ? a[3] : 0;
+    if (src.handedness === 'right') {
+      // Tourner par crans (plus confortable qu'une rotation continue en casque).
+      if (Math.abs(ax) > 0.6 && cranTourne <= 0) { lacetChariot -= Math.sign(ax) * Math.PI / 6; cranTourne = 0.35; }
+    } else { marche.x = ax; marche.y = ay; }
+  }
+  cranTourne -= dt;
+  majVisite(dt);
+  chariot.position.set(joueur.x, joueur.alt, joueur.z);
+  chariot.rotation.y = lacetChariot;
+  return camXR;
+}
+for (const i of [0, 1]) {
+  rendu.xr.getController(i).addEventListener('squeezestart', () => {
+    document.querySelector(`[data-phase="${phase === 'apres' ? 'avant' : 'apres'}"]`)?.click();
+  });
+}
+const boutonVR = document.createElement('button');
+boutonVR.id = 'vr';
+boutonVR.setAttribute('aria-pressed', 'false');
+boutonVR.textContent = '🥽 VR';
+boutonVR.title = 'Visite au casque (SteamVR lancé, maquette ouverte dans Chrome ou Edge sur le PC)';
+document.getElementById('plafonds')?.after(boutonVR);
+boutonVR.addEventListener('click', async () => {
+  const session = rendu.xr.getSession();
+  if (session) { await session.end(); return; }
+  const ok = await navigator.xr?.isSessionSupported?.('immersive-vr').catch(() => false);
+  if (!ok) {
+    alert('Casque non détecté. Brancher le casque, lancer SteamVR, puis ouvrir la maquette dans Chrome ou Edge sur ce PC.');
+    return;
+  }
+  const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+  if (mode !== 'visite') changerMode('visite');
+  lacetChariot = joueur.lacet; // on garde l'orientation de la visite
+  await rendu.xr.setSession(s);
+  boutonVR.setAttribute('aria-pressed', 'true');
+  s.addEventListener('end', () => boutonVR.setAttribute('aria-pressed', 'false'));
+});
 
 addEventListener('resize', () => {
   rendu.setSize(innerWidth, innerHeight);
@@ -2409,4 +2469,4 @@ addEventListener('resize', () => {
 });
 
 appliquerPhase();
-requestAnimationFrame(boucle);
+rendu.setAnimationLoop(boucle); // (et non requestAnimationFrame : obligatoire pour le casque)
