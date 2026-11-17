@@ -2399,8 +2399,18 @@ function boucle(t) {
       c.el.style.top = `${y}px`;
     }
   }
-  if (rendu.xr.isPresenting) cam = majVR(dt);
+  if (rendu.xr.isPresenting) {
+    // Une erreur en casque ne doit pas figer l'affichage : on la montre sur l'écran du PC.
+    try { cam = majVR(dt); } catch (err) { erreurVR(err); cam = camVisite; }
+  }
   rendu.render(scene, cam);
+}
+function erreurVR(err) {
+  if (erreurVR.vue) return;
+  erreurVR.vue = true;
+  console.error(err);
+  boutonVR.textContent = '🥽 VR : erreur';
+  boutonVR.title = String(err?.stack || err);
 }
 
 // ---------- Réalité virtuelle (casque SteamVR, via WebXR dans Chrome ou Edge) ----------
@@ -2409,6 +2419,14 @@ function boucle(t) {
 // latérale (grip) : basculer Avant / Après. Les murs et l'escalier se gèrent comme en visite.
 rendu.xr.enabled = true;
 rendu.xr.setReferenceSpaceType('local-floor');
+// Index : 2 écrans 1440 × 1600 à 90-144 Hz. Images allégées (70 % de la définition demandée par
+// SteamVR, rendu fovéal) et sans ombres pendant la visite au casque, sinon le PC ne suit pas.
+rendu.xr.setFramebufferScaleFactor(0.7);
+rendu.xr.setFoveation(1);
+// Ombres figées en casque (calculées une fois, plus à chaque image) : pas de recompilation des
+// matériaux comme en les coupant, qui bloquait Chrome au passage en VR.
+rendu.xr.addEventListener('sessionstart', () => { rendu.shadowMap.autoUpdate = false; rendu.shadowMap.needsUpdate = true; erreurVR.vue = false; });
+rendu.xr.addEventListener('sessionend', () => { rendu.shadowMap.autoUpdate = true; });
 const chariot = new THREE.Group();
 const camXR = new THREE.PerspectiveCamera(70, 1, 0.05, 120);
 chariot.add(camXR);
