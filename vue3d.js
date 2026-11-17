@@ -2402,10 +2402,24 @@ function boucle(t) {
   if (rendu.xr.isPresenting) {
     // Une erreur en casque ne doit pas figer l'affichage : on la montre sur l'écran du PC.
     try { cam = majVR(dt); } catch (err) { erreurVR(err); cam = camVisite; }
+    etatVR.images++;
   }
-  rendu.render(scene, cam);
+  try { rendu.render(scene, cam); } catch (err) { erreurVR(err); }
 }
+// Suivi VR affiché sur l'écran du PC (diagnostic : le casque ne montre pas les erreurs).
+const suiviVR = document.createElement('div');
+suiviVR.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9;background:#000c;color:#0f0;font:13px monospace;padding:6px 8px;border-radius:6px;display:none;white-space:pre';
+document.body.append(suiviVR);
+const etatVR = { images: 0, etape: '', erreur: '' };
+function majSuiviVR() {
+  suiviVR.style.display = 'block';
+  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
+}
+addEventListener('error', e => { etatVR.erreur = String(e.message || e.error); majSuiviVR(); });
+addEventListener('unhandledrejection', e => { etatVR.erreur = String(e.reason?.message || e.reason); majSuiviVR(); });
+setInterval(() => { if (etatVR.etape) majSuiviVR(); }, 500);
 function erreurVR(err) {
+  etatVR.erreur = String(err?.message || err);
   if (erreurVR.vue) return;
   erreurVR.vue = true;
   console.error(err);
@@ -2473,10 +2487,14 @@ boutonVR.addEventListener('click', async () => {
     alert('Casque non détecté. Brancher le casque, lancer SteamVR, puis ouvrir la maquette dans Chrome ou Edge sur ce PC.');
     return;
   }
+  etatVR.etape = 'demande de session'; etatVR.images = 0; etatVR.erreur = ''; majSuiviVR();
   const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+  etatVR.etape = 'session obtenue'; majSuiviVR();
   if (mode !== 'visite') changerMode('visite');
   lacetChariot = joueur.lacet; // on garde l'orientation de la visite
-  await rendu.xr.setSession(s);
+  try { await rendu.xr.setSession(s); } catch (err) { erreurVR(err); throw err; }
+  etatVR.etape = 'en cours'; majSuiviVR();
+  s.addEventListener('end', () => { etatVR.etape = 'terminée'; majSuiviVR(); });
   boutonVR.setAttribute('aria-pressed', 'true');
   s.addEventListener('end', () => boutonVR.setAttribute('aria-pressed', 'false'));
 });
