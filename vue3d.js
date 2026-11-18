@@ -2085,12 +2085,43 @@ function bougerMeuble(g, x, y, angle) {
   for (const f of suiveurs(g)) {
     const v = f.userData, rx = v.x - u.x, ry = v.y - u.y;
     Object.assign(v, { x: x + rx * c - ry * s, y: y + rx * s + ry * c, angle: ((v.angle + angle - u.angle) % 360 + 360) % 360 });
-    v.places[phase] = { x: v.x, y: v.y, angle: v.angle };
+    // Un suiveur rangé en réserve y reste (il suit sans réapparaître).
+    v.places[phase] = { x: v.x, y: v.y, angle: v.angle, ...(v.places[phase]?.reserve && { reserve: true }) };
     placerMeuble(f);
   }
   Object.assign(u, { x, y, angle });
   u.places[phase] = { x, y, angle };
   placerMeuble(g);
+}
+// Règle du coin repas (Yoann, 18/11) : toujours un vide d'au moins 7,5 cm entre l'avant de
+// l'assise d'une banquette du coin repas et le bord du plateau de la table. Si la table est
+// devant une banquette posée et trop près (ou par-dessus), elle recule, chaises comprises.
+const VIDE_BANQUETTE_TABLE = 7.5;
+function caleTableBanquette() {
+  const table = meubles.find(g => g.userData.meuble.id === 'table');
+  if (!table || table.userData.places[phase]?.reserve || !visible(table.userData.phase)) return false;
+  const ut = table.userData, mt = ut.meuble, at = ut.angle * Math.PI / 180;
+  const lt = mt.l || MODELES[mt.modele]?.l || 95, pt = mt.p || MODELES[mt.modele]?.p || 200;
+  const axe = a => [Math.cos(a), Math.sin(a)], prof = a => [Math.sin(a), -Math.cos(a)], pdt = (u, v) => u[0] * v[0] + u[1] * v[1];
+  let bouge = false;
+  for (const b of banquettesRepas()) {
+    const ub = b.userData;
+    if (ub.places[phase]?.reserve || !visible(ub.phase)) continue;
+    const ab = ub.angle * Math.PI / 180, f = prof(ab), cote = axe(ab), mb = ub.meuble;
+    const avant = [ub.x + f[0] * mb.p / 2, ub.y + f[1] * mb.p / 2];
+    const centre = [ut.x - avant[0], ut.y - avant[1]];
+    // Demi-largeur de la table vue dans l'axe de la banquette, et dans sa longueur.
+    const demiF = lt / 2 * Math.abs(pdt(f, axe(at))) + pt / 2 * Math.abs(pdt(f, prof(at)));
+    const demiC = lt / 2 * Math.abs(pdt(cote, axe(at))) + pt / 2 * Math.abs(pdt(cote, prof(at)));
+    if (Math.abs(pdt(centre, cote)) > mb.l / 2 + demiC) continue; // pas en face de ce module
+    const vide = pdt(centre, f) - demiF;
+    if (vide < VIDE_BANQUETTE_TABLE && vide > -mb.p) {
+      const d = VIDE_BANQUETTE_TABLE - vide;
+      bougerMeuble(table, Math.round((ut.x + f[0] * d) * 10) / 10, Math.round((ut.y + f[1] * d) * 10) / 10, ut.angle);
+      bouge = true;
+    }
+  }
+  return bouge;
 }
 function sauverMeubles() {
   clearTimeout(minuterieSauvegarde);
@@ -2128,6 +2159,7 @@ barreMeuble.addEventListener('click', e => {
       placerMeuble(g);
     }
   } else bougerMeuble(meubleChoisi, u.x, u.y, ((u.angle + Number(v)) % 360 + 360) % 360);
+  caleTableBanquette();
   cadre.setFromObject(meubleChoisi);
   sauverMeubles();
 });
@@ -2214,6 +2246,7 @@ function choisirBanquette(variante) {
     else g.userData.places.apres = { ...g.userData.places.apres, reserve: true };
   }
   appliquerPhase();
+  caleTableBanquette();
   sauverMeubles();
 }
 function majSelecteurBanquettes(actif) {
@@ -2599,6 +2632,7 @@ const finGlisse = e => {
   if (!glisse || e.pointerId !== glisse.id) return;
   glisse = null;
   orbite.enabled = mode === 'ensemble';
+  if (caleTableBanquette() && meubleChoisi) cadre.setFromObject(meubleChoisi);
   sauverMeubles();
 };
 rendu.domElement.addEventListener('pointerup', finGlisse, true);
