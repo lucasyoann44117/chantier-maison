@@ -2187,6 +2187,45 @@ function uiReserve() {
   return (uiReserve.ui = { bouton, panneau });
 }
 const rangés = () => meubles.filter(g => visible(g.userData.phase) && g.userData.places[phase]?.reserve);
+// Sélecteur de banquettes du coin repas (après travaux) : les banquettes vont par paire
+// (o.groupe = 'banquette-repas', o.variante = coloris, o.module = 0 ou 1). Choisir une paire
+// la pose aux places de la paire affichée (ou à ses places par défaut) et range les autres.
+// Toute nouvelle paire ainsi marquée apparaît dans la liste.
+const banquettesRepas = () => meubles.filter(g => g.userData.meuble.groupe === 'banquette-repas');
+function selecteurBanquettes() {
+  if (selecteurBanquettes.el) return selecteurBanquettes.el;
+  const el = document.createElement('select');
+  el.setAttribute('aria-label', 'Banquette du coin repas');
+  el.style.cssText = 'position:fixed;right:12px;top:calc(var(--haut-reserve, 110px) + 42px);z-index:6;display:none;font:600 14px system-ui;color:#fff;background:#1e2429;border:1px solid rgb(255 255 255 / .2);border-radius:999px;padding:7px 12px;max-width:calc(100vw - 24px)';
+  document.body.append(el);
+  el.addEventListener('change', () => choisirBanquette(el.value));
+  return (selecteurBanquettes.el = el);
+}
+function choisirBanquette(variante) {
+  const liste = banquettesRepas(), posees = liste.filter(g => !g.userData.places.apres?.reserve);
+  // Places à reprendre : celles de la paire posée, module par module, sinon les places par défaut.
+  let place = k => { const g = posees.find(x => (x.userData.meuble.module || 0) === k); return g && { ...g.userData.places.apres }; };
+  // Deux modules posés l'un sur l'autre (ou un seul posé) : on repart des places par défaut.
+  const p0 = place(0), p1 = place(1);
+  if (!p0 || !p1 || Math.hypot(p0.x - p1.x, p0.y - p1.y) < 50) place = () => null;
+  for (const g of liste) {
+    const o = g.userData.meuble, k = o.module || 0;
+    if (o.variante === variante) g.userData.places.apres = { ...(place(k) || g.userData.defauts.apres), reserve: false };
+    else g.userData.places.apres = { ...g.userData.places.apres, reserve: true };
+  }
+  appliquerPhase();
+  sauverMeubles();
+}
+function majSelecteurBanquettes(actif) {
+  const el = selecteurBanquettes(), liste = banquettesRepas();
+  const variantes = [...new Set(liste.map(g => g.userData.meuble.variante))];
+  el.style.display = actif && phase === 'apres' && variantes.length ? 'block' : 'none';
+  if (el.style.display === 'none') return;
+  const posee = liste.find(g => !g.userData.places.apres?.reserve)?.userData.meuble.variante || '';
+  const txt = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  el.innerHTML = `<option value="">🛋 Banquette : aucune</option>` + variantes.map(v => `<option value="${txt(v)}">🛋 Banquette : ${txt(v)}</option>`).join('');
+  el.value = posee;
+}
 function majReserve() {
   // Bouton Réserve toujours visible en vue d'ensemble (plus besoin de passer par Déplacer, 18/11).
   const { bouton, panneau } = uiReserve(), actif = mode === 'ensemble';
@@ -2197,6 +2236,7 @@ function majReserve() {
   if (!actif) panneau.style.display = 'none';
   bouton.textContent = `📦 Réserve (${rangés().length})`;
   if (panneau.style.display !== 'none') dessinerReserve();
+  majSelecteurBanquettes(actif);
 }
 const echapper = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 function dessinerReserve() {
