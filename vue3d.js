@@ -2250,6 +2250,16 @@ function choisirBanquette(variante) {
     if (o.variante === variante) g.userData.places.apres = { ...(place(k) || g.userData.defauts.apres), reserve: false };
     else g.userData.places.apres = { ...g.userData.places.apres, reserve: true };
   }
+  // Paire bien alignée : le module 2 se pose bout à bout dans l'axe du module 1, comme dans
+  // leurs places par défaut (même écart, tourné avec le module 1).
+  const m0 = liste.find(g => g.userData.meuble.variante === variante && !(g.userData.meuble.module || 0));
+  const m1 = liste.find(g => g.userData.meuble.variante === variante && g.userData.meuble.module === 1);
+  if (m0 && m1) {
+    const d0 = m0.userData.defauts.apres, d1 = m1.userData.defauts.apres, p0 = m0.userData.places.apres;
+    const da = ((p0.angle - d0.angle) * Math.PI) / 180, vx = d1.x - d0.x, vy = d1.y - d0.y;
+    m1.userData.places.apres = { x: Math.round((p0.x + vx * Math.cos(da) - vy * Math.sin(da)) * 10) / 10,
+      y: Math.round((p0.y + vx * Math.sin(da) + vy * Math.cos(da)) * 10) / 10, angle: p0.angle, reserve: false };
+  }
   appliquerPhase();
   caleTableBanquette();
   sauverMeubles();
