@@ -1096,6 +1096,40 @@ const MODELES = {
     for (let x = -l / 2 + 12.5; x < l / 2 - 1; x += 12.5) piece3d(g, 0.6, h - assise - 6, 0.3, x, assise + (h - assise) / 2, -p / 2 + ep + 0.2, couture);
     piece3d(g, l, 0.8, 0.4, 0, assise - 0.4, p / 2 + 0.2, couture);                        // passepoil de l'assise
   } },
+  // Banc Espen (Bronx71, Livin24, 18/11) : 190 × 58 × 79 cm, assise 48 cm, coussin d'assise et
+  // dossier séparés en éco-cuir cognac capitonné, structure en métal noir (pieds luge aux bouts).
+  banquetteEspen: { construire(g, o) {
+    const { l, p } = o, h = o.h || 79, c = o.couleur || '#a0612d', assise = 48, fonce = '#' + new THREE.Color(c).multiplyScalar(0.7).getHexString();
+    for (const sx of [-1, 1]) { // luges noires aux deux bouts : 2 montants, traverse basse, traverse sous l'assise
+      const x = sx * (l / 2 - 2);
+      piece3d(g, 3, h - 1, 3, x, (h - 1) / 2, -p / 2 + 3, 'noir');
+      piece3d(g, 3, assise - 10, 3, x, (assise - 10) / 2, p / 2 - 3, 'noir');
+      piece3d(g, 3, 3, p - 3, x, 1.5, 0, 'noir');
+      piece3d(g, 3, 3, p - 3, x, assise - 11.5, 0, 'noir');
+    }
+    piece3d(g, l - 4, 3, 3, 0, assise - 11.5, -p / 2 + 3, 'noir'); // longerons
+    piece3d(g, l - 4, 3, 3, 0, assise - 11.5, p / 2 - 3, 'noir');
+    piece3d(g, l - 6, 3, p - 8, 0, assise - 11.5, 0, '#2a2a2c'); // fond d'assise
+    piece3d(g, l - 29, 10, 42.5, 0, assise - 5, 3, c);            // coussin d'assise (161 cm)
+    piece3d(g, l - 29, 24, 8, 0, h - 13, -p / 2 + 8, c);          // dossier séparé
+    for (const y of [h - 21, h - 13, h - 5]) piece3d(g, l - 31, 0.5, 0.4, 0, y, -p / 2 + 12.2, fonce); // capitons
+    for (let x = -(l - 29) / 2 + 20; x < (l - 29) / 2 - 5; x += 20) piece3d(g, 0.5, 9, 0.4, x, assise - 5, 3 + 21.4, fonce);
+    piece3d(g, l - 4, 2, 2, 0, h - 1, -p / 2 + 3, 'noir');        // barre haute du dossier
+  } },
+  // Banc Gino (GGM Möbel, 18/11) : 103,5 × 52,5 × 79 cm, assise 48 cm, similicuir marron, dossier
+  // rembourré de 31 cm à coutures verticales et clous décoratifs, pieds acier noir un peu inclinés.
+  banquetteGino: { construire(g, o) {
+    const { l, p } = o, h = o.h || 79, c = o.couleur || '#6b4a32', assise = 48, fonce = '#' + new THREE.Color(c).multiplyScalar(0.65).getHexString();
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const pied = piece3d(g, 2.5, assise - 12, 2.5, sx * (l / 2 - 6), (assise - 12) / 2, sz * (p / 2 - 6), 'noir');
+      pied.rotation.set(sz * 0.08, 0, -sx * 0.08); // légèrement inclinés vers l'extérieur
+    }
+    piece3d(g, l - 8, 2, p - 10, 0, assise - 13, 0, 'noir');      // cadre
+    piece3d(g, l, 12, p - 8, 0, assise - 6, 4, c);                // assise
+    piece3d(g, l, h - assise, 10, 0, assise + (h - assise) / 2, -p / 2 + 5, c); // dossier
+    for (let x = -l / 2 + 10; x < l / 2 - 5; x += 10) piece3d(g, 0.5, h - assise - 4, 0.4, x, assise + (h - assise) / 2, -p / 2 + 10.2, fonce);
+    for (let x = -l / 2 + 4; x <= l / 2 - 4; x += 4) piece3d(g, 1, 1, 0.6, x, h - 3, -p / 2 + 10.4, '#c9a646'); // clous décoratifs
+  } },
   // Lit : sommier, matelas, couette (linge) sur les deux tiers, oreillers ; tete = tête de lit.
   lit: { construire(g, o) {
     // pieds = hauteur des pieds sous le sommier (lit de Marine : pieds en bois, photos du 16/11).
@@ -2213,7 +2247,8 @@ function caleTableBanquette() {
 const PLINTHE = 1, PIEDS_DERRIERE = 2.5;
 function caleBanquetteMur(b) {
   const ub = b.userData, mb = ub.meuble, a = ub.angle * Math.PI / 180, f = [Math.sin(a), -Math.cos(a)];
-  const dos = [ub.x - f[0] * (mb.p / 2 + PIEDS_DERRIERE), ub.y - f[1] * (mb.p / 2 + PIEDS_DERRIERE)];
+  const derriere = mb.piedsDerriere ?? PIEDS_DERRIERE; // pieds qui dépassent derrière le dossier
+  const dos = [ub.x - f[0] * (mb.p / 2 + derriere), ub.y - f[1] * (mb.p / 2 + derriere)];
   let meilleur = null;
   for (const m of murs) {
     if (m.niveau || !visible(m.phase)) continue;
@@ -2371,10 +2406,23 @@ function choisirBanquette(variante) {
   // Deux modules posés l'un sur l'autre (ou un seul posé) : on repart des places par défaut.
   const p0 = place(0), p1 = place(1);
   if (!p0 || !p1 || Math.hypot(p0.x - p1.x, p0.y - p1.y) < 50) place = () => null;
+  // Banquette d'un seul tenant (une seule pièce) : posée au centre de la place occupée.
+  const centre = p0 && p1 && Math.hypot(p0.x - p1.x, p0.y - p1.y) >= 50 ? { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2, angle: p0.angle }
+    : posees.length === 1 && liste.filter(g => g.userData.meuble.variante === posees[0].userData.meuble.variante).length === 1 ? { ...posees[0].userData.places.apres } : null;
+  const seule = liste.filter(g => g.userData.meuble.variante === variante).length === 1;
   for (const g of liste) {
     const o = g.userData.meuble, k = o.module || 0;
-    if (o.variante === variante) g.userData.places.apres = { ...(place(k) || g.userData.defauts.apres), reserve: false };
+    if (o.variante === variante) g.userData.places.apres = { ...((seule ? centre : place(k)) || g.userData.defauts.apres), reserve: false };
     else g.userData.places.apres = { ...g.userData.places.apres, reserve: true };
+  }
+  // D'une paire à une pièce unique et retour : on garde le même centre.
+  if (!seule && !p1 && centre) {
+    const m0 = liste.find(g => g.userData.meuble.variante === variante && !(g.userData.meuble.module || 0));
+    const m1 = liste.find(g => g.userData.meuble.variante === variante && g.userData.meuble.module === 1);
+    if (m0 && m1) {
+      const d0 = m0.userData.defauts.apres, d1 = m1.userData.defauts.apres;
+      m0.userData.places.apres = { x: centre.x + (d0.x - d1.x) / 2, y: centre.y + (d0.y - d1.y) / 2, angle: centre.angle, reserve: false };
+    }
   }
   // Paire bien alignée : le module 2 se pose bout à bout dans l'axe du module 1, comme dans
   // leurs places par défaut (même écart, tourné avec le module 1).
