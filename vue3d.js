@@ -1088,7 +1088,8 @@ const MODELES = {
   // à 47 cm comme les chaises, dossier à coutures verticales, hauteur totale h. Avant = +Z.
   banquetteChr: { construire(g, o) {
     const { l, p } = o, h = o.h || 98, c = o.couleur || '#1f6f78', pied = 12, assise = 47, ep = 16;
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 3, pied, 3, sx * (l / 2 - 5), pied / 2, sz * (p / 2 - 6), 'noir');
+    // Pieds arrière 2,5 cm derrière le dossier : contre la plinthe, le dossier ne touche pas le mur.
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 3, pied, 3, sx * (l / 2 - 5), pied / 2, sz < 0 ? -p / 2 - 1 : p / 2 - 6, 'noir');
     piece3d(g, l, assise - pied, p - ep, 0, pied + (assise - pied) / 2, ep / 2, c);       // assise
     piece3d(g, l, h - pied, ep, 0, pied + (h - pied) / 2, -p / 2 + ep / 2, c);           // dossier
     const couture = o.couture || '#' + new THREE.Color(c).multiplyScalar(0.62).getHexString(); // un ton plus foncé
@@ -2207,6 +2208,34 @@ function caleTableBanquette() {
   }
   return bouge;
 }
+// Banquette du coin repas collée au mur par ses pieds arrière (2,5 cm derrière le dossier),
+// contre la plinthe (1 cm) : si son dos est à moins de 40 cm d'un mur parallèle, elle s'y cale.
+const PLINTHE = 1, PIEDS_DERRIERE = 2.5;
+function caleBanquetteMur(b) {
+  const ub = b.userData, mb = ub.meuble, a = ub.angle * Math.PI / 180, f = [Math.sin(a), -Math.cos(a)];
+  const dos = [ub.x - f[0] * (mb.p / 2 + PIEDS_DERRIERE), ub.y - f[1] * (mb.p / 2 + PIEDS_DERRIERE)];
+  let meilleur = null;
+  for (const m of murs) {
+    if (m.niveau || !visible(m.phase)) continue;
+    const [ax, ay] = m.a, L = Math.hypot(m.b[0] - ax, m.b[1] - ay), u = [(m.b[0] - ax) / L, (m.b[1] - ay) / L], N = [-u[1], u[0]];
+    const fn = f[0] * N[0] + f[1] * N[1];
+    if (Math.abs(fn) < 0.95) continue; // pas parallèle
+    const le = (dos[0] - ax) * u[0] + (dos[1] - ay) * u[1];
+    if (le < -20 || le > L + 20) continue; // pas en face de ce mur
+    const s = (dos[0] - ax) * N[0] + (dos[1] - ay) * N[1];
+    if (Math.sign(s) !== Math.sign(fn)) continue; // le mur doit être derrière la banquette
+    const ecart = Math.abs(s) - m.ep / 2 - PLINTHE;
+    if (ecart > -15 && ecart < 40 && (!meilleur || Math.abs(ecart) < Math.abs(meilleur))) meilleur = ecart;
+  }
+  if (meilleur === null || Math.abs(meilleur) < 0.3) return false;
+  bougerMeuble(b, Math.round((ub.x - f[0] * meilleur) * 10) / 10, Math.round((ub.y - f[1] * meilleur) * 10) / 10, ub.angle);
+  return true;
+}
+function caleBanquettesMur() {
+  let bouge = false;
+  for (const b of banquettesRepas()) if (!b.userData.places[phase]?.reserve && visible(b.userData.phase) && !(b.userData.meuble.module === 1 && b.userData.meuble.suit)) bouge = caleBanquetteMur(b) || bouge;
+  return bouge;
+}
 function sauverMeubles() {
   clearTimeout(minuterieSauvegarde);
   minuterieSauvegarde = setTimeout(async () => {
@@ -2358,6 +2387,7 @@ function choisirBanquette(variante) {
       y: Math.round((p0.y + vx * Math.sin(da) + vy * Math.cos(da)) * 10) / 10, angle: p0.angle, reserve: false };
   }
   appliquerPhase();
+  caleBanquettesMur();
   caleTableBanquette();
   sauverMeubles();
 }
@@ -2923,7 +2953,8 @@ const finGlisse = e => {
   if (!glisse || e.pointerId !== glisse.id) return;
   glisse = null;
   orbite.enabled = mode === 'ensemble';
-  if (caleTableBanquette() && meubleChoisi) cadre.setFromObject(meubleChoisi);
+  const cale = caleBanquettesMur();
+  if ((caleTableBanquette() || cale) && meubleChoisi) cadre.setFromObject(meubleChoisi);
   sauverMeubles();
 };
 rendu.domElement.addEventListener('pointerup', finGlisse, true);
