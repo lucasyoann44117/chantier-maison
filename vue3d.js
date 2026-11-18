@@ -385,6 +385,19 @@ function construireMur(m) {
       const vitre = pave(s, e, M(o.allege), M(o.haut), matVitre, true);
       if (vitre) { vitre.userData.ouverture = o; vitresCliquables.push(vitre); } // fiche au clic
       menuiserie(s, e, o);
+      // Débattement d'une porte-fenêtre ouvrante (o.debattement, cm) : zone au sol à garder
+      // libre devant elle, côté pièce, après travaux (bouton Fenêtres).
+      if (o.debattement && faceExterieure >= 0) {
+        const sens = faceExterieure === 4 ? 1 : -1, ix = -uy * sens, iy = ux * sens; // vers la pièce
+        const mil = (s + e) / 2, d = M(m.ep) / 2 + M(o.debattement) / 2;
+        const zone = new THREE.Mesh(new THREE.PlaneGeometry(M(e - s), M(o.debattement)),
+          new THREE.MeshBasicMaterial({ color: '#f08a24', transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
+        zone.rotation.order = 'YXZ';
+        zone.rotation.set(-Math.PI / 2, angle, 0);
+        zone.position.set(M(ax + ux * mil) + ix * d, 0.006, -(M(ay + uy * mil) + iy * d));
+        zone.userData.menuiserie = true;
+        ajouter(zone, 'apres', false);
+      }
     }
     if (o.type === 'porte' && o.vitree) porteVitree(m, o, angle, ux, uy);
     if (o.type === 'porte' && o.panneau) porteExterieure(s, e, o);
