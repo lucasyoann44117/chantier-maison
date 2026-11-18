@@ -81,6 +81,8 @@
   async function charger() {
     const res = await Promise.all(TABLES.map(t => db.lister(t)));
     TABLES.forEach((t, i) => { D[t] = res[i]; });
+    // Relevé électrique (tableaux, circuits) : absent en mode démo.
+    D.tableaux = db.lireMaquette ? await db.lireMaquette('tableaux').catch(() => null) : null;
   }
 
   async function rafraichir() {
@@ -188,6 +190,7 @@
       ${jaugeBudget(t)}
       ${lienFinancement()}
       ${lienAssurances()}
+      ${lienElectricite()}
       <section aria-label="Avancement des travaux">
         ${metre('Travaux', termines / D.postes.length, `${termines} poste${termines > 1 ? 's' : ''} terminé${termines > 1 ? 's' : ''} sur ${D.postes.length}`)}
       </section>
@@ -274,6 +277,37 @@
       <section class="bloc"><h2>Par artisan</h2><ul class="liste">${fiches.map(ligne).join('')}</ul>
         ${sansDate.length ? `<p class="discret">Sans date au planning (${esc(sansDate.map(f => f.e).join(', '))}) : la vérification se fera dès que leur début sera planifié. S'ils commencent après la fin de leur attestation, il faudra la nouvelle.</p>` : ''}
       </section>`;
+  }
+
+  // ---------- Électricité : relevé des tableaux et plans pour l'électricien ----------
+  // Données : ligne « tableaux » de la table maquette (jamais dans le dépôt public).
+
+  function lienElectricite() {
+    const E = D.tableaux;
+    if (!E) return '';
+    const etapes = E.etapes || [];
+    const faites = etapes.filter(e => e.fait).length;
+    return `<ul class="liste"><li><a class="ligne" href="#electricite">
+      <span class="corps"><strong>Plan électrique</strong><small>${faites} étape${faites > 1 ? 's' : ''} faite${faites > 1 ? 's' : ''} sur ${etapes.length}</small></span>
+      ${pastille(faites === etapes.length ? 'Prêt' : 'En cours', faites === etapes.length ? 'ok' : 'att')}</a></li></ul>`;
+  }
+
+  function vueElectricite() {
+    const E = D.tableaux;
+    if (!E) return `<p class="retour"><a href="#bilan">← Bilan</a></p><header class="entete"><h1>Plan électrique</h1></header><p class="discret">Pas encore de relevé.</p>`;
+    const couleurs = [['#1d1d1f', 'Noir', 'existant, qui reste'], ['#2e8b57', 'Vert', 'à déplacer'], ['#2f6fd0', 'Bleu', 'à ajouter'], ['#c8372d', 'Rouge', 'à supprimer']];
+    const module = m => `<li><div class="ligne"><span class="corps"><strong>${esc(m.n ? `${m.n}. ` : '')}${esc(m.etiquette)}${m.doute ? ' (?)' : ''}</strong>
+      ${m.alimente ? `<small>${esc(m.alimente)}</small>` : '<small>Ce qu\'il alimente : à relever</small>'}</span>
+      ${m.calibre ? `<span class="montant">${esc(m.calibre)}</span>` : ''}</div></li>`;
+    return `<p class="retour"><a href="#bilan">← Bilan</a></p>
+      <header class="entete"><h1>Plan électrique</h1></header>
+      <section class="bloc"><h2>Où on en est</h2><ul class="topo">${(E.etapes || []).map(e => `<li>${e.fait ? '✅' : '⬜'} ${esc(e.texte)}</li>`).join('')}</ul>
+        ${E.maj ? `<p class="discret">Mis à jour le ${date(E.maj)}.</p>` : ''}</section>
+      <section class="bloc"><h2>Code couleur du plan</h2><ul class="topo">${couleurs.map(([c, n, t]) => `<li><span style="display:inline-block;width:.9em;height:.9em;border-radius:50%;background:${c};vertical-align:-.1em"></span> <strong>${n}</strong> : ${t}</li>`).join('')}</ul></section>
+      ${(E.aFaire || []).length ? `<section class="bloc"><h2>À faire</h2><ul class="topo">${E.aFaire.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>` : ''}
+      ${(E.tableaux || []).map(t => `<section class="bloc"><h2>${esc(t.nom)}</h2>${t.lieu ? `<p class="discret">${esc(t.lieu)}</p>` : ''}
+        ${t.rangees.map(r => `<h3>${esc(r.titre)}</h3><ul class="liste">${r.modules.map(module).join('')}</ul>`).join('')}</section>`).join('')}
+      ${E.arrivee ? `<section class="bloc"><h2>Arrivée</h2><p>${esc(E.arrivee)}</p></section>` : ''}`;
   }
 
   // Graduation « ronde » de l'axe : 1, 2, 2,5 ou 5 fois une puissance de 10.
@@ -999,9 +1033,9 @@
     });
   }
 
-  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, documents: vueDocuments, devis: vueDevis, factures: vueFactures, reste: vueReste, financement: vueFinancement, assurances: vueAssurances };
+  const VUES = { bilan: vueBilan, postes: vuePostes, planning: vuePlanning, documents: vueDocuments, devis: vueDevis, factures: vueFactures, reste: vueReste, financement: vueFinancement, assurances: vueAssurances, electricite: vueElectricite };
   // Devis, factures, reste et financement s'ouvrent depuis le Bilan.
-  const SOUS_BILAN = ['devis', 'factures', 'reste', 'financement', 'assurances'];
+  const SOUS_BILAN = ['devis', 'factures', 'reste', 'financement', 'assurances', 'electricite'];
 
   // Le titre, ses boutons et les filtres qui le suivent restent en haut de
   // l'écran pendant le défilement, comme la barre d'une appli.

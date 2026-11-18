@@ -35,6 +35,10 @@ function baseSupabase(cfg) {
     async ajouter(table, lignes) { return ok(await sb.from(table).insert(lignes).select()); },
     async modifier(table, id, champs) { ok(await sb.from(table).update(champs).eq('id', id)); },
     async supprimer(table, id) { ok(await sb.from(table).delete().eq('id', id)); },
+    // Une ligne de la table « maquette » (données de la maison, jamais dans le dépôt public).
+    async lireMaquette(id) {
+      return ok(await sb.from('maquette').select('donnees').eq('id', id).maybeSingle())?.donnees ?? null;
+    },
     // Pont vers le Google Drive (supabase/functions/drive). Sans corps : GET.
     async drive(action, params = {}, corps) {
       const { session } = ok(await sb.auth.getSession());
