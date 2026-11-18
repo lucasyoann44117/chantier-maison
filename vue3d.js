@@ -329,7 +329,7 @@ function construireMur(m) {
   };
 
   // Porte extérieure fermée, dans le plan du mur (photos du 18/11) : porte de garage blanche
-  // coulissante latérale de 2007 (panneaux verticaux d'environ 48 cm, poignée), ou porte pleine
+  // coulissante latérale de 2007 (lames verticales étroites d'environ 12 cm, poignée), ou porte pleine
   // gris anthracite (entrée, garage côté jardin).
   const porteExterieure = (s, e, o) => {
     const garage = o.panneau === 'garage';
@@ -342,7 +342,7 @@ function construireMur(m) {
     };
     plaque(s, e, 0, o.haut, garage ? matPorteGarage : matVolet);
     if (garage) {
-      const n = Math.round((e - s) / 48);
+      const n = Math.round((e - s) / 12); // lames étroites, porte « à l'ancienne » (Yoann, 18/11)
       for (let k = 1; k < n; k++) { const x = s + (e - s) * k / n; plaque(x - 0.6, x + 0.6, 2, o.haut - 2, matRainure, 0.05); }
       plaque(e - 30, e - 18, 98, 104, matRainure, 0.07); // poignée
     }
@@ -1126,17 +1126,38 @@ const MODELES = {
   } },
   // Poêle à granulés rond (photos) : cylindre noir brillant, porte vitrée bombée avec la
   // flamme, conduit noir jusqu'au plafond (conduit = longueur).
+  // Poêle Jolly Mec (photo du 18/11) : cylindre noir brillant, couvercle plat un peu débordant,
+  // bandeau de verre noir en haut de façade, porte avec une haute vitre de flamme au centre
+  // (avant = +Z), conduit Ø 15 cm jusqu'au plafond.
   poele: { construire(g, o) {
     const { l, h } = o, r = M(l / 2);
-    const corps = new THREE.Mesh(new THREE.CylinderGeometry(r, r, M(h), 40), new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.25, metalness: 0.3 }));
-    corps.position.y = M(h / 2);
+    const laque = new THREE.MeshStandardMaterial({ color: '#0f1012', roughness: 0.18, metalness: 0.35 });
+    const corps = new THREE.Mesh(new THREE.CylinderGeometry(r, r, M(h - 3), 48), laque);
+    corps.position.y = M((h - 3) / 2);
     g.add(corps);
-    const vitre = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.003, r + 0.003, M(h * 0.32), 24, 1, true, -0.55, 1.1),
-      new THREE.MeshStandardMaterial({ color: '#2a1a10', emissive: '#c25a1a', emissiveIntensity: 0.6, roughness: 0.2, side: THREE.DoubleSide }));
-    vitre.position.y = M(h * 0.58);
-    g.add(vitre);
-    const tuyau = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, M(o.conduit || 160), 16), matMeuble('noir'));
-    tuyau.position.set(0, M(h + (o.conduit || 160) / 2), 0);
+    const couvercle = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.015, r + 0.015, 0.03, 48), laque);
+    couvercle.position.y = M(h - 1.5);
+    g.add(couvercle);
+    const coque = (y0, y1, ouverture, mat, dr) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r + dr, r + dr, M(y1 - y0), 32, 1, true, -ouverture / 2, ouverture), mat);
+      m.position.y = M((y0 + y1) / 2);
+      g.add(m);
+    };
+    const verreNoir = new THREE.MeshStandardMaterial({ color: '#050506', roughness: 0.05, metalness: 0.5, side: THREE.DoubleSide });
+    coque(h * 0.78, h * 0.93, 1.6, verreNoir, 0.002);                                   // bandeau en verre
+    coque(h * 0.06, h * 0.76, 1.1, new THREE.MeshStandardMaterial({ color: '#1b1c1f', roughness: 0.3, side: THREE.DoubleSide }), 0.003); // porte
+    // Vitre : flamme en dégradé (jaune en bas au centre, orange, puis sombre vers les bords).
+    const toile = document.createElement('canvas');
+    toile.width = 64; toile.height = 128;
+    const gc = toile.getContext('2d'), dg = gc.createRadialGradient(32, 110, 4, 32, 100, 80);
+    dg.addColorStop(0, '#ffe08a'); dg.addColorStop(0.3, '#f39a2e'); dg.addColorStop(0.6, '#a8380f'); dg.addColorStop(1, '#1a0d08');
+    gc.fillStyle = dg; gc.fillRect(0, 0, 64, 128);
+    const flamme = new THREE.CanvasTexture(toile);
+    flamme.colorSpace = THREE.SRGBColorSpace;
+    coque(h * 0.27, h * 0.72, 0.75, new THREE.MeshStandardMaterial({ color: '#000', emissive: '#ffffff', emissiveMap: flamme, emissiveIntensity: 0.9, roughness: 0.1, side: THREE.DoubleSide }), 0.005); // vitre
+    const c = o.conduit || 160;
+    const tuyau = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, M(c), 24), matMeuble('noir'));
+    tuyau.position.set(0, M(h + c / 2), 0);
     g.add(tuyau);
   } },
   // Chaise longue (le « morceau de canapé » à part) : piètement métal, assise gris foncé,
