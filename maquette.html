@@ -97,6 +97,16 @@
       // Positions des meubles déplacés, partagées par le foyer (ligne « mobilier »).
       const { data: mobilier } = await sb.from('maquette').select('donnees').eq('id', 'mobilier').maybeSingle();
       window.MAISON_MOBILIER = mobilier?.donnees || null;
+      // Enregistrement par différence : relit l'état du serveur et n'y change que les meubles
+      // (et portes) modifiés ici, pour ne pas effacer ce qu'un autre appareil a fait.
+      window.MAISON_FUSIONNER_MOBILIER = async diff => {
+        const { data: actuel, error: e1 } = await sb.from('maquette').select('donnees').eq('id', 'mobilier').maybeSingle();
+        if (e1) throw new Error(e1.message);
+        const d = { ...(actuel?.donnees || {}), ...diff };
+        if (diff._portes) d._portes = { ...(actuel?.donnees?._portes || {}), ...diff._portes };
+        const { error: erreur } = await sb.from('maquette').upsert({ id: 'mobilier', donnees: d, updated_at: new Date().toISOString() });
+        if (erreur) throw new Error(erreur.message);
+      };
       window.MAISON_SAUVER_MOBILIER = async positions => {
         const { error: erreur } = await sb.from('maquette')
           .upsert({ id: 'mobilier', donnees: positions, updated_at: new Date().toISOString() });

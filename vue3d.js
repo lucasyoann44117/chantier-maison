@@ -2217,11 +2217,25 @@ function sauverMeubles() {
       pos[g.userData.meuble.id + '@apres'] = arrondi(g.userData.places.apres);
     }
     try {
-      if (window.MAISON_SAUVER_MOBILIER) await window.MAISON_SAUVER_MOBILIER(pos);
+      if (window.MAISON_FUSIONNER_MOBILIER) {
+        // Appli partagée (18/11) : on n'envoie que ce qui a changé depuis le chargement ou le
+        // dernier envoi, fusionné côté appli avec l'état du serveur. Un autre appareil ouvert
+        // avec un état ancien n'efface plus les changements faits ailleurs.
+        const base = mobilierEnvoye || positionsMeubles || {}, diff = {};
+        for (const k of Object.keys(pos)) if (JSON.stringify(pos[k]) !== JSON.stringify(base[k])) diff[k] = pos[k];
+        if (diff._portes) { // portes : seulement celles réglées ici
+          const p = {};
+          for (const [c, v] of Object.entries(pos._portes)) if (JSON.stringify(v) !== JSON.stringify(base._portes?.[c])) p[c] = v;
+          diff._portes = p;
+        }
+        if (Object.keys(diff).length) await window.MAISON_FUSIONNER_MOBILIER(diff);
+        mobilierEnvoye = JSON.parse(JSON.stringify(pos));
+      } else if (window.MAISON_SAUVER_MOBILIER) await window.MAISON_SAUVER_MOBILIER(pos);
       else localStorage.setItem('maquette-mobilier', JSON.stringify(pos));
     } catch (err) { console.warn('Mobilier non enregistré', err); }
   }, 500);
 }
+var mobilierEnvoye = null;
 barreMeuble.addEventListener('click', e => {
   const v = e.target.closest('button')?.dataset.tourner;
   if (!v || !meubleChoisi) return;
