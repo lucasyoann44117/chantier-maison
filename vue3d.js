@@ -2817,6 +2817,7 @@ function montrerFichePorte(p) {
   addEventListener('resize', majSuite);
   setTimeout(majSuite, 0);
   setTimeout(majReserve, 0); // bouton Réserve visible dès le chargement
+  setTimeout(majCouleurVaisselier, 0); // couleur de la banquette, une fois tout chargé
 }
 // Un toucher sans glisser (pour ne pas gêner la rotation de la vue ni le regard en visite).
 let departElec = null;
