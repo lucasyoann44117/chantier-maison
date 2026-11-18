@@ -981,24 +981,28 @@ const MODELES = {
   // Photos de Yoann (16/11) : bas à 3 tiroirs, un tiroir central dessous, 3 portes, boutons
   // blancs, plinthe ; haut à 3 portes coulissantes vitrées de 2 × 2 carreaux, poignées
   // noires encastrées, corniche moulurée.
+  // Vaisselier : après travaux, repeint de la couleur de la banquette posée au coin repas
+  // (majCouleurVaisselier) ; blanc avant travaux et sans banquette.
   vaisselier: { l: 152, p: 50, construire(g) {
-    piece3d(g, 150, 10, 48, 0, 5, 0, 'blanc');
-    piece3d(g, 146, 76, 45, 0, 48, -0.5, 'blanc');
-    piece3d(g, 154, 3, 51, 0, 87.5, 0.5, 'blanc');
+    const peint = vaisselierPeint = matMeuble('blanc').clone();
+    const corps = (...a) => { piece3d(g, ...a, 'blanc').material = peint; };
+    corps(150, 10, 48, 0, 5, 0);
+    corps(146, 76, 45, 0, 48, -0.5);
+    corps(154, 3, 51, 0, 87.5, 0.5);
     const z = 22.4, bouton = (x, y) => piece3d(g, 3, 3, 2.5, x, y, z + 1, 'porcelaine');
     piece3d(g, 146, 0.6, 0.4, 0, 71, z, 'joint');
     for (const x of [-24.5, 24.5]) piece3d(g, 0.6, 74, 0.4, x, 47, z, 'joint');
     piece3d(g, 49, 0.6, 0.4, 0, 57, z, 'joint');
     for (const x of [-48, 0, 48]) bouton(x, 78);
     bouton(0, 64); bouton(-30, 46); bouton(30, 46); bouton(-14, 40);
-    piece3d(g, 144, 113, 36, 0, 145.5, -7, 'blanc');
+    corps(144, 113, 36, 0, 145.5, -7);
     for (const [k, x] of [-47, 0, 47].entries()) {
       for (const dx of [-10.5, 10.5]) for (const y of [122, 168]) piece3d(g, 18, 40, 0.6, x + dx, y, 11.4, 'vitre');
       piece3d(g, 0.6, 108, 0.4, x + 23.5, 145, 11.5, 'joint');
       piece3d(g, 2, 8, 0.5, x + (k === 2 ? -20 : 20), 145, 11.6, 'noir'); // poignée encastrée
     }
-    piece3d(g, 152, 3, 40, 0, 203.5, -6, 'blanc');
-    piece3d(g, 158, 8, 44, 0, 209, -6, 'blanc');
+    corps(152, 3, 40, 0, 203.5, -6);
+    corps(158, 8, 44, 0, 209, -6);
   } },
   // Meuble bas en bois : deux tiroirs vitrés et deux portes coulissantes.
   buffetBois: { l: 112, p: 46, construire(g) {
@@ -2093,6 +2097,15 @@ function appliquerPhase() {
   majReserve();
   majElec();
   majPortes(); // arcs d'ouverture : rouges si un meuble visible est dans le passage
+  majCouleurVaisselier();
+}
+var vaisselierPeint = null, blancVaisselier = null;
+function majCouleurVaisselier() {
+  if (!vaisselierPeint) return;
+  blancVaisselier ||= vaisselierPeint.color.clone();
+  let couleur = null;
+  try { if (phase === 'apres') couleur = banquettesRepas().find(g => !g.userData.places.apres?.reserve)?.userData.meuble.couleur; } catch { /* pas encore prêt */ }
+  if (couleur) vaisselierPeint.color.set(couleur); else vaisselierPeint.color.copy(blancVaisselier);
 }
 
 const camEnsemble = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
