@@ -44,6 +44,90 @@ sol.position.set(CENTRE.x, -0.02, CENTRE.z);
 sol.receiveShadow = true;
 scene.add(sol);
 
+// ---------- Jardin (plan de masse DPC02 au 1/150 + photos du 18/11) ----------
+// Repère du plan : x vers l'est, y vers le nord (cm), origine au coin sud-ouest du garage ;
+// le garage touche la limite ouest, la rue des Iris est à 5,20 m au sud de la maison.
+// Terrain : 20,55 m sur la rue, 19,89 m au fond, 34,44 m à l'ouest, 33,22 m à l'est.
+// (appelé plus bas, une fois « ajouter » et la liste des éléments prêts)
+function construireJardin() {
+  const P =(x, y) => new THREE.Vector2(M(x), M(y));
+  const plaque = (pts, couleur, haut, phase) => {
+    const forme = new THREE.Shape(pts.map(([x, y]) => P(x, y)));
+    const m = new THREE.Mesh(new THREE.ShapeGeometry(forme), new THREE.MeshLambertMaterial({ color: couleur }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = haut; // la rotation envoie déjà le y du plan vers -Z
+    m.material.side = THREE.DoubleSide;
+    m.castShadow = false; m.receiveShadow = true;
+    m.userData.phase = phase; scene.add(m); elements.push(m);
+  };
+  const boite = (x0, y0, x1, y1, h, z0, couleur, phase, rugueux = 0.9) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(M(Math.abs(x1 - x0)), M(h), M(Math.abs(y1 - y0))),
+      new THREE.MeshStandardMaterial({ color: couleur, roughness: rugueux }));
+    m.position.set(M((x0 + x1) / 2), M(z0 + h / 2), -M((y0 + y1) / 2));
+    return ajouter(m, phase);
+  };
+  // Haie : suite de touffes (sphères aplaties) le long d'un segment, hauteur un peu irrégulière.
+  const matHaie = new THREE.MeshStandardMaterial({ color: '#3d5632', roughness: 1, flatShading: true });
+  const haie = (x0, y0, x1, y1, h, ep, phase, clairsemee = false) => {
+    const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / 110));
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n, hk = h * (0.85 + 0.3 * ((k * 37) % 7) / 7);
+      if (clairsemee && k % 3 === 1) continue;
+      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), clairsemee ? matHaieTaillee : matHaie);
+      m.scale.set(M(Math.max(ep, L / n * 0.75)), M(hk / 2), M(ep));
+      m.position.set(M(x0 + (x1 - x0) * t), M(hk / 2), -M(y0 + (y1 - y0) * t));
+      m.rotation.y = -Math.atan2(y1 - y0, x1 - x0);
+      ajouter(m, phase);
+    }
+  };
+  const matHaieTaillee = new THREE.MeshStandardMaterial({ color: '#6b5a43', roughness: 1, flatShading: true });
+  const arbre = (x, y, hTronc, rTronc, hCime, rCime, couleur, phase) => {
+    const tronc = new THREE.Mesh(new THREE.CylinderGeometry(M(rTronc * 0.8), M(rTronc), M(hTronc), 8),
+      new THREE.MeshStandardMaterial({ color: '#6e5e4c', roughness: 1 }));
+    tronc.position.set(M(x), M(hTronc / 2), -M(y));
+    ajouter(tronc, phase);
+    const cime = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ color: couleur, roughness: 1, flatShading: true }));
+    cime.scale.set(M(rCime), M(hCime / 2), M(rCime));
+    cime.position.set(M(x), M(hTronc + hCime / 2 - 20), -M(y));
+    ajouter(cime, phase);
+  };
+
+  // Sol : rue, trottoir, pelouse de la parcelle, gravier noir devant (stationnement et allée).
+  plaque([[-1500, -520], [3500, -520], [3500, -1300], [-1500, -1300]], '#5b5d60', 0.004);
+  plaque([[0, -520], [2055, -520], [1994, 2802], [0, 2924]], '#6f8c4c', 0.006);
+  plaque([[0, -520], [852, -520], [852, 0], [336, 0], [336, 145], [0, 145]], '#2c2c2e', 0.009);
+  // Bordure en pavés clairs le long de l'allée (photos de l'entrée).
+  boite(846, -520, 858, 0, 6, 0, '#d9d2c4');
+
+  // Haies de limite : ouest (derrière le garage), fond (nord), est.
+  haie(-40, 800, -40, 2900, 260, 140);
+  haie(0, 2950, 1994, 2830, 320, 160);
+  haie(2030, 2780, 2050, 250, 260, 150);
+  // Haie sur la rue, devant la pelouse : complète avant les travaux ; commencée à tailler
+  // (le 18/11) pour laisser passer les engins de chantier.
+  haie(900, -470, 2030, -470, 170, 90, 'avant');
+  haie(900, -470, 2030, -470, 120, 70, 'apres', true);
+  // Claustra gris côté est, entre le pignon et la limite, avec un portillon (photo du pignon).
+  boite(1578, 120, 2030, 126, 180, 0, '#6d6a66', undefined, 0.8);
+
+  // Terrasse en bois contre la façade nord (photos du 18/11) : complète avant les travaux ;
+  // aujourd'hui démontée, seules restent les lambourdes. Après : l'extension prend sa place.
+  boite(330, 930, 1180, 1300, 6, 0, '#8a7a66', 'avant', 0.95);
+  boite(0, 791, 330, 900, 6, 0, '#8a7a66', undefined, 0.95);
+  for (let x = 950; x <= 1180; x += 60) boite(x - 4, 1000, x + 4, 1300, 5, 0, '#7b6a55', 'apres');
+
+  // Arbres. Olivier : avant, à droite de la terrasse (terre nue sur la photo), plus touffu ;
+  // après, replanté à gauche, taillé.
+  arbre(1260, 1180, 140, 12, 300, 210, '#8c9a78', 'avant');
+  arbre(380, 1700, 110, 8, 160, 90, '#8c9a78', 'apres');
+  arbre(1150, 2050, 170, 14, 380, 300, '#5f6f45');   // pommier au milieu de la pelouse
+  arbre(820, 2480, 160, 13, 360, 260, '#66704a');    // fruitier près de la bâche
+  arbre(250, 2750, 250, 20, 650, 380, '#4f5a3a');    // grands arbres du fond
+  arbre(1700, 2700, 280, 22, 700, 420, '#55603e');
+  // Abri de jardin blanc au fond, à droite.
+  boite(1350, 2620, 1600, 2820, 220, 0, '#e7ebe8', undefined, 0.85);
+}
+
 const matMur = new THREE.MeshStandardMaterial({ color: '#f1ede6', roughness: 0.92 });
 const matPlafond = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 1, side: THREE.DoubleSide });
 const matVitre = new THREE.MeshStandardMaterial({ color: '#a9cbe0', transparent: true, opacity: 0.28, roughness: 0.1, metalness: 0.1 });
@@ -62,6 +146,7 @@ function ajouter(mesh, phase, ombre = true) {
   elements.push(mesh);
   return mesh;
 }
+construireJardin();
 
 // ---------- Murs ----------
 
