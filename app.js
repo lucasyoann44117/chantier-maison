@@ -303,7 +303,7 @@
       <header class="entete"><h1>Plan électrique</h1></header>
       <section class="bloc"><h2>Où on en est</h2><ul class="topo">${(E.etapes || []).map(e => `<li>${e.fait ? '✅' : '⬜'} ${esc(e.texte)}</li>`).join('')}</ul>
         ${E.maj ? `<p class="discret">Mis à jour le ${date(E.maj)}.</p>` : ''}</section>
-      <section class="bloc"><h2>Code couleur du plan</h2><ul class="topo">${couleurs.map(([c, n, t]) => `<li><span style="display:inline-block;width:.9em;height:.9em;border-radius:50%;background:${c};vertical-align:-.1em"></span> <strong>${n}</strong> : ${t}</li>`).join('')}</ul></section>
+      <section class="bloc"><h2>Code couleur du plan</h2><ul class="topo">${couleurs.map(([c, n, t]) => `<li><span style="display:inline-block;width:.9em;height:.9em;border-radius:50%;background:${c};border:1px solid #fff8;vertical-align:-.1em"></span> <strong>${n}</strong> : ${t}</li>`).join('')}</ul></section>
       ${(E.aFaire || []).length ? `<section class="bloc"><h2>À faire</h2><ul class="topo">${E.aFaire.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>` : ''}
       ${(E.tableaux || []).map(t => `<section class="bloc"><h2>${esc(t.nom)}</h2>${t.lieu ? `<p class="discret">${esc(t.lieu)}</p>` : ''}
         ${t.rangees.map(r => `<h3>${esc(r.titre)}</h3><ul class="liste">${r.modules.map(module).join('')}</ul>`).join('')}</section>`).join('')}
