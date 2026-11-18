@@ -848,6 +848,34 @@ const MODELES = {
     });
     piece3d(g, 0.5, h - pz, 0.5, l / 2 - 0.25, pz + (h - pz) / 2, z + 0.1, 'joint');
   } },
+  // Bibliothèque blanche à cases décalées (salon, photos du 18/11) : côté gauche et montant droit
+  // pleine hauteur ; rang du haut fermé sur 80 % (niche de droite ouverte, livres penchés) ;
+  // rang du milieu : petite case à gauche, grande case jusqu'au montant ; rang du bas : une case
+  // sur 73 %, vide à droite. Livres en couleurs dans les cases.
+  biblioDecalee: { construire(g, o) {
+    const { l, p, h } = o, m = o.mat || 'blanc', e = 2, z = 0, X = f => -l / 2 + f * l;
+    const planche = (f0, f1, y) => piece3d(g, (f1 - f0) * l, e, p, X((f0 + f1) / 2), y, z, m);
+    const montant = (f, y0, y1) => piece3d(g, e, y1 - y0, p, X(f) + (f === 0 ? e / 2 : f === 1 ? -e / 2 : 0), (y0 + y1) / 2, z, m);
+    const fond = (f0, f1, y0, y1) => piece3d(g, (f1 - f0) * l - e, y1 - y0, 0.6, X((f0 + f1) / 2), (y0 + y1) / 2, -p / 2 + 0.3, '#e4e0d8');
+    const y1 = h * 0.34, y2 = h * 0.64;
+    montant(0, 0, h); montant(1, 0, h * 0.97);
+    planche(0, 0.8, h - e / 2); planche(0, 1, y2); planche(0, 1, y1); planche(0, 0.73, e / 2);
+    montant(0.8, y2, h); montant(0.29, y1, y2); montant(0.73, 0, y1);
+    fond(0, 0.8, y2, h); fond(0, 1, y1, y2); fond(0, 0.73, 0, y1);
+    // Livres : tranches de couleurs, hauteur et épaisseur variables, un peu en retrait du bord.
+    const teintes = ['#f2efe6', '#e8c33a', '#2f8f8a', '#1f2a3a', '#d8552b', '#f0f0ee', '#c43b6b', '#3d7a3a', '#3a5fa8', '#8a6b4a'];
+    let n = 0;
+    const livres = (f0, f1, yb, hmax) => {
+      for (let x = X(f0) + e + 1; x < X(f1) - e - 2;) {
+        const ep = 2 + (n * 7 % 5), hl = hmax * (0.72 + (n * 13 % 9) / 40);
+        piece3d(g, ep, hl, p * 0.7, x + ep / 2, yb + e / 2 + hl / 2, z + p * 0.08, teintes[n++ % teintes.length]);
+        x += ep + 0.3;
+      }
+    };
+    livres(0, 0.8, y2, h - y2 - 4); livres(0.8, 1, y2, h * 0.3);
+    livres(0, 0.29, y1, y2 - y1 - 6); livres(0.29, 1, y1, y2 - y1 - 6);
+    livres(0, 0.73, 0, y1 - 6);
+  } },
   // Lit : sommier, matelas, couette (linge) sur les deux tiers, oreillers ; tete = tête de lit.
   lit: { construire(g, o) {
     // pieds = hauteur des pieds sous le sommier (lit de Marine : pieds en bois, photos du 16/11).
@@ -1193,8 +1221,9 @@ async function chargerObjet3d(g, o) {
     g.add(pivot);
     // Le conduit du poêle n'est pas sur la photo découpée : on le remet jusqu'au plafond.
     if (o.conduit) {
-      const tuyau = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, M(o.conduit), 16), matMeuble('noir'));
-      tuyau.position.y = M(o.h + o.conduit / 2);
+      // Il part de 15 cm sous le dessus du poêle : aucun jour entre le poêle et le conduit (Ø 15 cm, photo du 18/11).
+      const enfonce = 15, tuyau = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, M(o.conduit + enfonce), 24), matMeuble('noir'));
+      tuyau.position.y = M(o.h - enfonce + (o.conduit + enfonce) / 2);
       g.add(tuyau);
     }
   } catch { /* pas de modèle 3D pour cet objet : on garde le modèle simple */ }
@@ -1708,6 +1737,15 @@ orbite.enableDamping = true;
 orbite.maxPolarAngle = Math.PI * 0.48;
 orbite.minDistance = 4;
 orbite.maxDistance = 45;
+// Vue de contrôle : #vue=cibleX,cibleY,cibleH,camX,camY,camH (cm, coordonnées du plan) cadre un
+// meuble de près, pour vérifier un modèle sans manipuler la souris.
+const vueDemandee = /^#vue=([-\d.,]+)$/.exec(location.hash);
+if (vueDemandee) {
+  const [tx, ty, th, cx, cy, ch] = vueDemandee[1].split(',').map(Number);
+  orbite.minDistance = 0.3;
+  orbite.target.set(M(tx), M(th), -M(ty));
+  camEnsemble.position.set(M(cx), M(ch), -M(cy));
+}
 
 const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 120);
 const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };// ---------- Déplacer les meubles (bouton Meubles, vue d'ensemble) ----------
