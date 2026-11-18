@@ -1237,6 +1237,22 @@ const MODELES = {
     piece3d(g, o.l, o.h, o.p, 0, o.h / 2, 0, o.mat || 'noir');
     piece3d(g, o.l - 4, o.h - 20, 0.4, 0, o.h / 2 + 4, o.p / 2 + 0.1, 'gris');
   } },
+  // Enceinte compacte sur pied (18/11) : Focal Chorus 706 (39 × 22 × 26,3 cm, boomer 16,5 cm,
+  // tweeter 25 mm en haut) sur pied Focal S 700 noir de 60 cm (socle, colonne, plateau). Avant = +Z.
+  enceinteSurPied: { construire(g, o) {
+    const pied = o.pied || 60, he = o.hEnceinte || 39, le = o.lEnceinte || 22, pe = o.pEnceinte || 26.3, c = o.couleur || '#1b1b1d';
+    const disque = (r, y, z, mat) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(M(r), M(r), M(1), 32), matMeuble(mat));
+      m.rotation.x = Math.PI / 2; m.position.set(0, M(y), M(z)); g.add(m);
+    };
+    piece3d(g, 30, 1.5, 30, 0, 0.75, 0, 'noir');                 // socle
+    piece3d(g, 7, pied - 2.5, 7, 0, 1.5 + (pied - 2.5) / 2, -2, 'noir'); // colonne
+    piece3d(g, le, 1, pe - 2, 0, pied - 0.5, 0, 'noir');          // plateau
+    piece3d(g, le, he, pe, 0, pied + he / 2, 0, c);               // enceinte
+    disque(7.5, pied + he * 0.36, pe / 2 + 0.3, '#2e2f33');       // haut-parleur 16,5 cm
+    disque(2.6, pied + he * 0.33, pe / 2 + 0.6, '#6e7177');       // ogive
+    disque(2.2, pied + he * 0.8, pe / 2 + 0.3, '#9aa0a6');        // tweeter 25 mm
+  } },
   // Piano numérique sur pied en X : caisse, touches blanches et noires.
   piano: { construire(g, o) {
     const { l, p } = o, h = o.h || 75;
