@@ -2130,7 +2130,7 @@ const camVisite = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05
 const joueur = { x: M(740), z: -M(220), lacet: 0.8, tangage: 0, yeux: 1.70, alt: 0, niveau: 0 };// ---------- Déplacer les meubles (bouton Meubles, vue d'ensemble) ----------
 // Attraper un meuble et le faire glisser au sol ; une barre permet de le tourner.
 // Positions enregistrées : window.MAISON_SAUVER_MOBILIER (appli) ou le navigateur.
-let modeMeubles = false, meubleChoisi = null, glisse = null, minuterieSauvegarde = null;
+let modeMeubles = false, meubleChoisi = null, glisse = null, minuterieSauvegarde = null, pileMeubles = [];
 const solPlan = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const pointeur = new THREE.Vector2(), rayonMeuble = new THREE.Raycaster(), surSol = new THREE.Vector3();
 const cadre = new THREE.BoxHelper(undefined, '#f5b800');
@@ -2139,7 +2139,7 @@ scene.add(cadre);
 const barreMeuble = document.createElement('div');
 barreMeuble.style.cssText = 'position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:5;display:none;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;gap:6px;align-items:center;background:#1e2429;color:#fff;padding:6px 8px;border-radius:22px;font:600 13px system-ui;box-shadow:0 4px 14px rgb(0 0 0 / .3)';
 barreMeuble.innerHTML = '<span id="nom-meuble" style="padding:0 6px"></span>' +
-  ['↺ 15°|-15', '↻ 15°|15', '↻ 90°|90', 'Origine|origine', '📦 Ranger|ranger', 'OK|ok'].map(t => {
+  ['⇄ Autre|autre', '↺ 15°|-15', '↻ 15°|15', '↻ 90°|90', 'Origine|origine', '📦 Ranger|ranger', 'OK|ok'].map(t => {
     const [lib, val] = t.split('|');
     return `<button data-tourner="${val}" style="font:inherit;border:0;border-radius:999px;padding:6px 10px;background:${val === 'ok' ? '#f5b800' : '#38424a'};color:${val === 'ok' ? '#1e2429' : '#fff'};cursor:pointer">${lib}</button>`;
   }).join('');
@@ -2240,6 +2240,10 @@ barreMeuble.addEventListener('click', e => {
   const v = e.target.closest('button')?.dataset.tourner;
   if (!v || !meubleChoisi) return;
   if (v === 'ok') { choisirMeuble(null); return; }
+  if (v === 'autre') { // meuble suivant au même endroit (dessous ou dessus)
+    if (pileMeubles.length > 1) choisirMeuble(pileMeubles[(pileMeubles.indexOf(meubleChoisi) + 1) % pileMeubles.length]);
+    return;
+  }
   const u = meubleChoisi.userData;
   if (v === 'ranger') {
     // Dans la réserve pour cette phase seulement ; il garde sa place dans l'autre.
@@ -2886,11 +2890,19 @@ const versSol = e => {
 rendu.domElement.addEventListener('pointerdown', e => {
   if (!modeMeubles || mode !== 'ensemble') return;
   versSol(e);
-  // Les meubles fixes (poêle) ne s'attrapent pas.
-  const touche = rayonMeuble.intersectObjects(meubles.filter(g => g.visible && !g.userData.meuble.fixe), true)[0];
-  if (!touche) { choisirMeuble(null); return; }
-  let g = touche.object;
-  while (!meubles.includes(g)) g = g.parent;
+  // Les meubles fixes (poêle) ne s'attrapent pas. Sous le doigt, on prend le plus petit meuble
+  // touché (la chaise glissée sous la table plutôt que la table, un objet plutôt que le tapis) ;
+  // « ⇄ Autre » dans la barre passe aux autres meubles du même endroit (18/11).
+  const pile = [];
+  for (const h of rayonMeuble.intersectObjects(meubles.filter(g => g.visible && !g.userData.meuble.fixe), true)) {
+    let m = h.object;
+    while (!meubles.includes(m)) m = m.parent;
+    if (!pile.includes(m)) pile.push(m);
+  }
+  if (!pile.length) { choisirMeuble(null); return; }
+  const aire = m => { const o = m.userData.meuble; return (o.l || MODELES[o.modele]?.l || 100) * (o.p || MODELES[o.modele]?.p || 100) * (o.libre ? 1000 : 1); };
+  pileMeubles = [...pile].sort((a, b) => aire(a) - aire(b));
+  const g = pileMeubles[0];
   choisirMeuble(g);
   solPlan.constant = -g.position.y; // glisse au niveau du meuble (RDC ou étage)
   rayonMeuble.ray.intersectPlane(solPlan, surSol);
