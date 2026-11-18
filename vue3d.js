@@ -2399,6 +2399,16 @@ boutonElec.addEventListener('click', () => {
 document.getElementById('meubles')?.addEventListener('click', () => {
   if (modeMeubles && elec().actif) boutonElec.click();
 });
+// Barre de boutons qui défile : fondu à droite tant qu'il reste des boutons cachés ; la molette
+// fait aussi défiler la barre sur ordinateur.
+{
+  const barre = document.querySelector('.barre');
+  const majSuite = () => barre && barre.classList.toggle('suite', barre.scrollLeft + barre.clientWidth < barre.scrollWidth - 4);
+  barre?.addEventListener('scroll', majSuite, { passive: true });
+  barre?.addEventListener('wheel', e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { barre.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+  addEventListener('resize', majSuite);
+  setTimeout(majSuite, 0);
+}
 // Un toucher sans glisser (pour ne pas gêner la rotation de la vue ni le regard en visite).
 let departElec = null;
 rendu.domElement.addEventListener('pointerdown', e => { departElec = { x: e.clientX, y: e.clientY }; });

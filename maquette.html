@@ -35,6 +35,13 @@
     .etat { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--doux); }
     .etat a { color: var(--jaune); }
     @media (max-width: 640px) { .aide { display: none; } }
+    /* Barre de boutons sur une seule rangée qui défile du doigt (portrait comme paysage) :
+       plus aucun bouton ne sort de l'écran. Fondu à droite tant qu'il reste des boutons à voir. */
+    .barre { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; touch-action: pan-x; overscroll-behavior-x: contain; }
+    .barre::-webkit-scrollbar { display: none; }
+    .barre > * { flex: none; }
+    .barre .groupe button { white-space: nowrap; }
+    .barre.suite { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
   </style>
 </head>
 <body>
