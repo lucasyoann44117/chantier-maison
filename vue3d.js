@@ -2175,7 +2175,8 @@ function uiReserve() {
 }
 const rangés = () => meubles.filter(g => visible(g.userData.phase) && g.userData.places[phase]?.reserve);
 function majReserve() {
-  const { bouton, panneau } = uiReserve(), actif = modeMeubles && mode === 'ensemble';
+  // Bouton Réserve toujours visible en vue d'ensemble (plus besoin de passer par Déplacer, 18/11).
+  const { bouton, panneau } = uiReserve(), actif = mode === 'ensemble';
   bouton.style.display = actif ? 'block' : 'none';
   // Juste sous la barre d'outils, quelle que soit sa hauteur (elle passe sur deux lignes au téléphone).
   const barre = document.querySelector('.barre');
@@ -2465,6 +2466,7 @@ function montrerFiche(o) {
   barre?.addEventListener('wheel', e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { barre.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
   addEventListener('resize', majSuite);
   setTimeout(majSuite, 0);
+  setTimeout(majReserve, 0); // bouton Réserve visible dès le chargement
 }
 // Un toucher sans glisser (pour ne pas gêner la rotation de la vue ni le regard en visite).
 let departElec = null;
