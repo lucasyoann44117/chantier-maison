@@ -913,3 +913,18 @@ dialog[open]::backdrop { animation: voile .22s ease-out; }
 .topo { margin: 0; padding-left: 1.2em; }
 .topo li { margin: .45em 0; line-height: 1.45; }
 
+
+/* Plan électrique : toujours sur fond blanc (comme un plan papier), légende en ligne. */
+.plan-elec { background: #fff; border: 1px solid var(--trait); border-radius: 10px; padding: 6px; overflow: auto; }
+.plan-elec svg { display: block; width: 100%; height: auto; min-width: 560px; }
+.legende-plan { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: .9rem; }
+.legende-plan span { display: inline-flex; align-items: center; gap: 6px; }
+.legende-plan i { display: inline-block; width: .9em; height: .9em; border-radius: 50%; border: 1px solid #fff8; }
+.legende-plan svg { background: #fff; border-radius: 4px; }
+@media print {
+  .barre, #app::before, .retour, .pas-imprimer, #contenu > *:not(.plan-impression) { display: none !important; }
+  body, main, #app { background: #fff !important; color: #000 !important; }
+  .plan-elec { border: 0; padding: 0; }
+  .plan-elec svg { min-width: 0; }
+  .bloc h2 { color: #000; }
+}

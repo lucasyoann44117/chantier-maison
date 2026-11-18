@@ -2243,10 +2243,15 @@ const TYPES_ELEC = {
   prise: { lib: 'Prise', z: 25, l: 8 }, prise2: { lib: 'Prise double', z: 25, l: 15 },
   inter: { lib: 'Interrupteur', z: 110, l: 8 }, vav: { lib: 'Va-et-vient', z: 110, l: 8 },
   rj45: { lib: 'Prise RJ45 / TV', z: 25, l: 8 },
+  // Lumières : point lumineux au plafond (on touche le sol de la pièce), applique murale.
+  lum: { lib: 'Point lumineux (plafond)', z: HAUTEUR - 2, l: 24, plafond: true }, applique: { lib: 'Applique', z: 180, l: 14 },
 };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const ETATS_ELEC = { existant: 'Existant', nouveau: 'À créer', retirer: 'À retirer' };
-const COULEURS_ELEC = { existant: '#f6f4ef', nouveau: '#2ea043', retirer: '#d1242f' };
+// Code couleur du plan électrique (Yoann et Sophie, 18/11) : existant en noir sur le plan
+// (blanc dans la maquette, comme les vraies plaques), à déplacer en vert, à ajouter en bleu,
+// à supprimer en rouge.
+const ETATS_ELEC = { existant: 'Existant', deplacer: 'À déplacer', nouveau: 'À ajouter', retirer: 'À supprimer' };
+const COULEURS_ELEC = { existant: '#f6f4ef', deplacer: '#2ea043', nouveau: '#2f6fd0', retirer: '#d1242f' };
 function elec() {
   if (elec.s) return elec.s;
   let d = window.MAISON_ELEC;
@@ -2265,7 +2270,14 @@ function dessinerPoint(p) {
   if (p.type === 'prise') trou(0);
   else if (p.type === 'prise2') { trou(-3.6); trou(3.6); }
   else if (p.type === 'rj45') { const c = new THREE.Mesh(new THREE.BoxGeometry(M(3), M(2.5), M(0.4)), fonce); c.position.z = M(0.6); g.add(c); }
-  else {
+  else if (p.type === 'lum' || p.type === 'applique') {
+    // Lumière : disque lumineux (au plafond, à plat ; applique contre le mur).
+    g.remove(plaque);
+    const disque = new THREE.Mesh(new THREE.CylinderGeometry(M(t.l / 2), M(t.l / 2), M(3), 24),
+      new THREE.MeshStandardMaterial({ color: COULEURS_ELEC[p.etat] || COULEURS_ELEC.existant, emissive: '#fff2c4', emissiveIntensity: 0.6 }));
+    if (p.type === 'applique') disque.rotation.x = Math.PI / 2;
+    g.add(disque);
+  } else {
     const b = new THREE.Mesh(new THREE.BoxGeometry(M(5), M(5.5), M(0.6)), new THREE.MeshStandardMaterial({ color: '#d9d6cf' }));
     b.position.z = M(0.8); g.add(b);
     if (p.type === 'vav') { const f = new THREE.Mesh(new THREE.BoxGeometry(M(3), M(0.5), M(0.3)), fonce); f.position.z = M(1.2); g.add(f); }
@@ -2280,7 +2292,7 @@ function majElec() {
   const s = elec();
   for (const g of s.groupe.children) {
     const p = g.userData.point;
-    const phaseOk = p.etat === 'existant' || (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant');
+    const phaseOk = p.etat === 'existant' || p.etat === 'deplacer' || (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant');
     g.visible = phaseOk && niveauMontre(p.niv ? 1 : 0);
     const choisi = s.choisi === p;
     g.scale.setScalar(choisi ? 1.6 : 1);
@@ -2351,11 +2363,11 @@ function majPanneauElec() {
       `<div>${bouton('act', 'supprimer', 'Effacer de la maquette')}${bouton('act', 'lacher', 'OK', true)}</div>`;
   } else {
     html += '<div style="margin-top:6px">' + Object.entries(TYPES_ELEC).map(([k, t]) => bouton('type', k, t.lib, s.type === k)).join('') + '</div>' +
-      '<div>' + Object.entries(ETATS_ELEC).filter(([k]) => k !== 'retirer').map(([k, v]) => bouton('etat', k, v, etat === k, k === 'nouveau' ? '#2ea043' : '#6e7781')).join('') + '</div>' +
-      '<p style="margin:8px 0 0;color:#aab;font-size:12px">Touche un mur pour poser. Touche une prise pour la modifier ou la marquer « à retirer ».</p>';
+      '<div>' + Object.entries(ETATS_ELEC).filter(([k]) => k === 'existant' || k === 'nouveau').map(([k, v]) => bouton('etat', k, v, etat === k, k === 'nouveau' ? COULEURS_ELEC.nouveau : '#6e7781')).join('') + '</div>' +
+      '<p style="margin:8px 0 0;color:#aab;font-size:12px">Touche un mur pour poser (point lumineux : touche le sol de la pièce). Touche un point pour le marquer « à déplacer » ou « à supprimer ».</p>';
   }
   // Récapitulatif par pièce (phase affichée) : ce qu'il faudra dire à l'électricien.
-  const vus = s.points.filter(p => p.etat === 'existant' || (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant'));
+  const vus = s.points.filter(p => p.etat === 'existant' || p.etat === 'deplacer' || (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant'));
   html += `<div>${bouton('act', 'recap', `Récapitulatif (${vus.length})`, panneauElec.recap)}</div>`;
   if (panneauElec.recap) {
     const parPiece = {};
@@ -2402,6 +2414,15 @@ rendu.domElement.addEventListener('pointerup', e => {
     while (!g.userData.point) g = g.parent;
     s.choisi = s.choisi === g.userData.point ? null : g.userData.point;
     majElec();
+    return;
+  }
+  // Point lumineux au plafond : on touche le sol de la pièce, il se pose au plafond au-dessus.
+  if (TYPES_ELEC[s.type].plafond) {
+    const niv = voirEtage ? 1 : 0, sol = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(niv ? BASE_ETAGE : 0)), v = new THREE.Vector3();
+    if (!rayonMeuble.ray.intersectPlane(sol, v)) return;
+    const p = { id: 'e' + Date.now().toString(36), type: s.type, etat: s.etat || (phase === 'apres' ? 'nouveau' : 'existant'),
+      x: Math.round(v.x * 1000) / 10, y: Math.round(-v.z * 1000) / 10, z: TYPES_ELEC[s.type].z, a: 0, niv };
+    s.points.push(p); dessinerPoint(p); s.choisi = null; sauverElec(); majElec();
     return;
   }
   const mur = rayonMeuble.intersectObjects(piecesDeMur.filter(m => m.visible), false)[0];

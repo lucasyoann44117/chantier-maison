@@ -83,6 +83,9 @@
     TABLES.forEach((t, i) => { D[t] = res[i]; });
     // Relevé électrique (tableaux, circuits) : absent en mode démo.
     D.tableaux = db.lireMaquette ? await db.lireMaquette('tableaux').catch(() => null) : null;
+    // Murs, pièces et points électriques de la maquette, pour dessiner le plan électrique.
+    D.rdc = db.lireMaquette ? await db.lireMaquette('rdc').catch(() => null) : null;
+    D.elec = db.lireMaquette ? await db.lireMaquette('electricite').catch(() => null) : null;
   }
 
   async function rafraichir() {
@@ -292,6 +295,73 @@
       ${pastille(faites === etapes.length ? 'Prêt' : 'En cours', faites === etapes.length ? 'ok' : 'att')}</a></li></ul>`;
   }
 
+  // Plan électrique du rez-de-chaussée, dessiné depuis la maquette (murs, pièces, points posés
+  // avec le bouton ⚡). Plan au propre, après travaux : murs gardés en plein, murs démolis en
+  // pointillé. Couleur des points : existant noir, à déplacer vert, à ajouter bleu, à supprimer rouge.
+  const TEINTES_ELEC = { existant: '#111', deplacer: '#2e8b57', nouveau: '#2f6fd0', retirer: '#c8372d' };
+  const NOMS_ELEC = { prise: 'Prise', prise2: 'Prise double', inter: 'Interrupteur', vav: 'Va-et-vient', rj45: 'Prise RJ45 / TV', lum: 'Point lumineux', applique: 'Applique' };
+  function symboleElec(type, c) {
+    const t = `stroke="${c}" stroke-width="2.2" fill="none"`;
+    switch (type) {
+      case 'prise': return `<path d="M0 -16 V0 M-10 0 A10 10 0 0 0 10 0 Z" ${t}/>`;
+      case 'prise2': return `<path d="M0 -16 V0 M-10 0 A10 10 0 0 0 10 0 Z M-10 7 H10" ${t}/>`;
+      case 'inter': return `<circle cx="0" cy="8" r="6" ${t}/><path d="M4 12 L12 22" ${t}/>`;
+      case 'vav': return `<circle cx="0" cy="8" r="6" ${t}/><path d="M4 12 L12 22 M-4 12 L-12 22" ${t}/>`;
+      case 'rj45': return `<rect x="-9" y="0" width="18" height="13" ${t}/><text x="0" y="10" font-size="9" text-anchor="middle" fill="${c}" font-family="sans-serif">TV</text>`;
+      case 'applique': return `<path d="M0 -16 V0" ${t}/><circle cx="0" cy="9" r="9" ${t}/><path d="M-6 3 L6 15 M6 3 L-6 15" ${t}/>`;
+      default: return `<circle r="13" ${t}/><path d="M-9 -9 L9 9 M9 -9 L-9 9" ${t}/>`; // point lumineux
+    }
+  }
+  function planElectrique() {
+    const R = D.rdc;
+    if (!R?.murs) return '';
+    const points = (D.elec?.points || []).filter(p => !p.niv);
+    const xs = R.murs.flatMap(m => [m.a[0], m.b[0]]), ys = R.murs.flatMap(m => [m.a[1], m.b[1]]);
+    const marge = 60, [x0, x1, y0, y1] = [Math.min(...xs) - marge, Math.max(...xs) + marge, Math.min(...ys) - marge, Math.max(...ys) + marge];
+    const P = (x, y) => `${x.toFixed(1)},${(-y).toFixed(1)}`;
+    let murs = '', baies = '';
+    for (const m of R.murs) {
+      if (m.niveau) continue;
+      const [ax, ay] = m.a, L = Math.hypot(m.b[0] - ax, m.b[1] - ay), ux = (m.b[0] - ax) / L, uy = (m.b[1] - ay) / L, nx = -uy, ny = ux, e = (m.ep || 10) / 2;
+      const quad = (s, f) => `<polygon points="${[[s, e], [f, e], [f, -e], [s, -e]].map(([t, d]) => P(ax + ux * t + nx * d, ay + uy * t + ny * d)).join(' ')}"/>`;
+      const ouv = (m.ouvertures || []).slice().sort((a, b) => a.pos - b.pos);
+      let s = 0, plein = '';
+      for (const o of ouv) {
+        plein += quad(s, o.pos);
+        if (o.type === 'fenetre' || o.type === 'baie') {
+          const [bx, by, cx, cy] = [ax + ux * o.pos, ay + uy * o.pos, ax + ux * (o.pos + o.largeur), ay + uy * (o.pos + o.largeur)];
+          baies += `<line x1="${bx.toFixed(1)}" y1="${(-by).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${(-cy).toFixed(1)}" stroke="#7aa7c7" stroke-width="4"/>`;
+        }
+        s = o.pos + o.largeur;
+      }
+      plein += quad(s, L);
+      murs += m.phase === 'avant' ? `<g fill="none" stroke="#999" stroke-width="2" stroke-dasharray="6 5">${plein}</g>` : `<g fill="#3a3a3a">${plein}</g>`;
+    }
+    const noms = (R.pieces || []).filter(q => q.phase !== 'avant' && !q.niveau && q.poly?.length).map(q => {
+      const cx = q.poly.reduce((t, p) => t + p[0], 0) / q.poly.length, cy = q.poly.reduce((t, p) => t + p[1], 0) / q.poly.length;
+      return `<text x="${cx.toFixed(0)}" y="${(-cy).toFixed(0)}" font-size="26" text-anchor="middle" fill="#888" font-family="sans-serif">${esc(q.nom)}</text>`;
+    }).join('');
+    const sym = points.map(p => {
+      const c = TEINTES_ELEC[p.etat] || TEINTES_ELEC.existant;
+      // Symboles agrandis (× 1,8) pour rester lisibles sur un plan imprimé en A4.
+      if (p.type === 'lum') return `<g transform="translate(${P(p.x, p.y)}) scale(1.8)">${symboleElec('lum', c)}</g>`;
+      const vx = Math.sin(p.a), vy = Math.cos(p.a); // vers la pièce, en coordonnées SVG (y vers le bas)
+      const ang = Math.atan2(-vx, vy) * 180 / Math.PI;
+      return `<g transform="translate(${P(p.x + vx * 28, p.y - vy * 28)}) rotate(${ang.toFixed(1)}) scale(1.8)">${symboleElec(p.type, c)}</g>`;
+    }).join('');
+    const compte = {};
+    for (const p of points) compte[p.etat] = (compte[p.etat] || 0) + 1;
+    const legende = `<div class="legende-plan">
+      ${Object.entries({ existant: 'Existant', deplacer: 'À déplacer', nouveau: 'À ajouter', retirer: 'À supprimer' }).map(([k, v]) => `<span><i style="background:${TEINTES_ELEC[k]}"></i>${v}${compte[k] ? ` (${compte[k]})` : ''}</span>`).join('')}
+      </div><div class="legende-plan">${Object.entries(NOMS_ELEC).map(([k, v]) => `<span><svg viewBox="-16 -18 32 44" width="22" height="30">${symboleElec(k, '#333')}</svg>${v}</span>`).join('')}</div>`;
+    return `<section class="bloc plan-impression"><h2>Plan du rez-de-chaussée</h2>
+      <p class="discret pas-imprimer">Dessiné depuis la maquette : les points se posent avec le bouton ⚡ de la maquette, puis se marquent « à déplacer », « à ajouter » ou « à supprimer ». ${points.length ? `${points.length} point${points.length > 1 ? 's' : ''} posé${points.length > 1 ? 's' : ''}.` : 'Aucun point posé pour l\'instant.'}</p>
+      <div class="plan-elec"><svg viewBox="${x0} ${-y1} ${x1 - x0} ${y1 - y0}" role="img" aria-label="Plan électrique du rez-de-chaussée">
+        <rect x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" fill="#fff"/>${murs}${baies}${noms}${sym}</svg></div>
+      ${legende}
+      <p class="pas-imprimer"><button class="btn" data-action="imprimer-plan">Imprimer ou enregistrer en PDF</button></p></section>`;
+  }
+
   function vueElectricite() {
     const E = D.tableaux;
     if (!E) return `<p class="retour"><a href="#bilan">← Bilan</a></p><header class="entete"><h1>Plan électrique</h1></header><p class="discret">Pas encore de relevé.</p>`;
@@ -303,6 +373,7 @@
       <header class="entete"><h1>Plan électrique</h1></header>
       <section class="bloc"><h2>Où on en est</h2><ul class="topo">${(E.etapes || []).map(e => `<li>${e.fait ? '✅' : '⬜'} ${esc(e.texte)}</li>`).join('')}</ul>
         ${E.maj ? `<p class="discret">Mis à jour le ${date(E.maj)}.</p>` : ''}</section>
+      ${planElectrique()}
       <section class="bloc"><h2>Code couleur du plan</h2><ul class="topo">${couleurs.map(([c, n, t]) => `<li><span style="display:inline-block;width:.9em;height:.9em;border-radius:50%;background:${c};border:1px solid #fff8;vertical-align:-.1em"></span> <strong>${n}</strong> : ${t}</li>`).join('')}</ul></section>
       ${(E.aFaire || []).length ? `<section class="bloc"><h2>À faire</h2><ul class="topo">${E.aFaire.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>` : ''}
       ${(E.tableaux || []).map(t => `<section class="bloc"><h2>${esc(t.nom)}</h2>${t.lieu ? `<p class="discret">${esc(t.lieu)}</p>` : ''}
@@ -1423,6 +1494,7 @@
       }
     },
     budget: () => formBudget(),
+    'imprimer-plan': () => window.print(),
     'nouveau-document': b => formDocument({
       type: b.dataset.devis ? 'devis' : b.dataset.facture ? 'facture' : TYPES_DOC[filtres.documents] ? filtres.documents : 'autre',
       poste_id: b.dataset.poste || null, devis_id: b.dataset.devis || null, facture_id: b.dataset.facture || null,
