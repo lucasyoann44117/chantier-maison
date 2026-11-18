@@ -107,6 +107,27 @@ function construireJardin() {
   haie(540, -500, 540, -90, 120, 55, 'avant');
   haie(540, -500, 540, -90, 90, 45, 'apres', true);
 
+  // Grillage rigide (panneaux soudés, poteaux métal) à gauche de la porte du garage, le long de
+  // la limite ouest jusqu'à la rue (Yoann, 18/11). Hauteur 1,50 m et teinte anthracite supposées.
+  {
+    const toile = document.createElement('canvas');
+    toile.width = toile.height = 64;
+    const gc = toile.getContext('2d');
+    gc.strokeStyle = '#fff'; gc.lineWidth = 3;
+    for (let k = 0; k <= 64; k += 16) { gc.beginPath(); gc.moveTo(k, 0); gc.lineTo(k, 64); gc.stroke(); }
+    gc.beginPath(); gc.moveTo(0, 1); gc.lineTo(64, 1); gc.stroke();
+    const maille = new THREE.CanvasTexture(toile);
+    maille.wrapS = maille.wrapT = THREE.RepeatWrapping;
+    const [y0, y1, hg] = [-515, 145, 150];
+    maille.repeat.set((y1 - y0) / 20, hg / 20);
+    const panneau = new THREE.Mesh(new THREE.PlaneGeometry(M(y1 - y0), M(hg)),
+      new THREE.MeshStandardMaterial({ color: '#3c4044', alphaMap: maille, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4 }));
+    panneau.rotation.y = Math.PI / 2;
+    panneau.position.set(M(-4), M(hg / 2 + 3), -M((y0 + y1) / 2));
+    ajouter(panneau);
+    for (let y = y0; y <= y1; y += (y1 - y0) / Math.ceil((y1 - y0) / 250)) boite(-7, y - 3, -1, y + 3, hg + 8, 0, '#2f3235', undefined, 0.5);
+  }
+
   // Haies de limite : ouest (derrière le garage), fond (nord), est.
   haie(-40, 800, -40, 2900, 260, 140);
   haie(0, 2950, 1994, 2830, 320, 160);
