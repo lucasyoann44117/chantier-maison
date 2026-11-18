@@ -40,7 +40,7 @@ scene.add(lumiereInterieure);
 
 const sol = new THREE.Mesh(new THREE.CircleGeometry(60, 48), new THREE.MeshLambertMaterial({ color: '#8fa877' }));
 sol.rotation.x = -Math.PI / 2;
-sol.position.set(CENTRE.x, -0.02, CENTRE.z);
+sol.position.set(CENTRE.x, -0.03, CENTRE.z);
 sol.receiveShadow = true;
 scene.add(sol);
 
@@ -74,7 +74,7 @@ function construireJardin() {
       const t = (k + 0.5) / n, hk = h * (0.85 + 0.3 * ((k * 37) % 7) / 7);
       if (clairsemee && k % 3 === 1) continue;
       const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), clairsemee ? matHaieTaillee : matHaie);
-      m.scale.set(M(Math.max(ep, L / n * 0.75)), M(hk / 2), M(ep));
+      m.scale.set(M(Math.max(ep, L / n * 0.6)), M(hk / 2), M(ep));
       m.position.set(M(x0 + (x1 - x0) * t), M(hk / 2), -M(y0 + (y1 - y0) * t));
       m.rotation.y = -Math.atan2(y1 - y0, x1 - x0);
       ajouter(m, phase);
@@ -92,12 +92,20 @@ function construireJardin() {
     ajouter(cime, phase);
   };
 
-  // Sol : rue, trottoir, pelouse de la parcelle, gravier noir devant (stationnement et allée).
-  plaque([[-1500, -520], [3500, -520], [3500, -1300], [-1500, -1300]], '#5b5d60', 0.004);
-  plaque([[0, -520], [2055, -520], [1994, 2802], [0, 2924]], '#6f8c4c', 0.006);
-  plaque([[0, -520], [852, -520], [852, 0], [336, 0], [336, 145], [0, 145]], '#2c2c2e', 0.009);
-  // Bordure en pavés clairs le long de l'allée (photos de l'entrée).
-  boite(846, -520, 858, 0, 6, 0, '#d9d2c4');
+  // Sol : rue, pelouse de la parcelle, puis devant la maison (dit par Yoann le 18/11) : deux
+  // places de parking face au garage, une petite haie, et l'allée bordée de pavés qui monte à
+  // la porte ; pelouse à droite. Tout reste sous le niveau des sols des pièces (y = 0).
+  plaque([[-1500, -520], [3500, -520], [3500, -1300], [-1500, -1300]], '#5b5d60', -0.018);
+  plaque([[0, -520], [2055, -520], [1994, 2802], [0, 2924]], '#6f8c4c', -0.016);
+  plaque([[0, -520], [500, -520], [500, 145], [0, 145]], '#2c2c2e', -0.013);           // parking
+  plaque([[580, -520], [790, -520], [800, 0], [580, 0]], '#2c2c2e', -0.013);            // allée
+  plaque([[336, -60], [580, -60], [580, 0], [336, 0]], '#2c2c2e', -0.013);              // bande devant la cuisine
+  // Bordures en pavés clairs de chaque côté de l'allée (photos de l'entrée).
+  boite(574, -520, 586, -60, 6, -1.5, '#d9d2c4');
+  boite(790, -520, 802, 20, 6, -1.5, '#d9d2c4');
+  // Petite haie entre le parking et l'allée : taillée depuis peu (photo de l'entrée).
+  haie(540, -500, 540, -90, 120, 55, 'avant');
+  haie(540, -500, 540, -90, 90, 45, 'apres', true);
 
   // Haies de limite : ouest (derrière le garage), fond (nord), est.
   haie(-40, 800, -40, 2900, 260, 140);
