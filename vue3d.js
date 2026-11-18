@@ -385,19 +385,7 @@ function construireMur(m) {
       const vitre = pave(s, e, M(o.allege), M(o.haut), matVitre, true);
       if (vitre) { vitre.userData.ouverture = o; vitresCliquables.push(vitre); } // fiche au clic
       menuiserie(s, e, o);
-      // Débattement d'une porte-fenêtre ouvrante (o.debattement, cm) : zone au sol à garder
-      // libre devant elle, côté pièce, après travaux (bouton Fenêtres).
-      if (o.debattement && faceExterieure >= 0) {
-        const sens = faceExterieure === 4 ? 1 : -1, ix = -uy * sens, iy = ux * sens; // vers la pièce
-        const mil = (s + e) / 2, d = M(m.ep) / 2 + M(o.debattement) / 2;
-        const zone = new THREE.Mesh(new THREE.PlaneGeometry(M(e - s), M(o.debattement)),
-          new THREE.MeshBasicMaterial({ color: '#f08a24', transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
-        zone.rotation.order = 'YXZ';
-        zone.rotation.set(-Math.PI / 2, angle, 0);
-        zone.position.set(M(ax + ux * mil) + ix * d, 0.006, -(M(ay + uy * mil) + iy * d));
-        zone.userData.menuiserie = true;
-        ajouter(zone, 'apres', false);
-      }
+      // (Débattement des portes ouvrantes : simulateur de portes, plus bas.)
     }
     if (o.type === 'porte' && o.vitree) porteVitree(m, o, angle, ux, uy);
     if (o.type === 'porte' && o.panneau) porteExterieure(s, e, o);
@@ -2014,7 +2002,7 @@ function appliquerPhase() {
       (mode === 'visite' || !plafonds.includes(e) || (voirPlafonds && !voirEtage && plafondsRdc.includes(e))) &&
       (e.userData.niveau !== 1 || mode === 'visite' || voirEtage) &&
       (!e.userData.toitDehors || mode === 'visite' || voirToit) &&
-      (!e.userData.menuiserie || voirFenetres) &&
+      (!e.userData.menuiserie || voirFenetres) && !e.userData.porteOuverte &&
       (!e.userData.meuble || voirMeubles);
   }
   reglerLampes(mode === 'visite');
@@ -2022,6 +2010,7 @@ function appliquerPhase() {
   reglerPlafonds();
   majReserve();
   majElec();
+  majPortes(); // arcs d'ouverture : rouges si un meuble visible est dans le passage
 }
 
 const camEnsemble = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
@@ -2126,7 +2115,7 @@ function caleTableBanquette() {
 function sauverMeubles() {
   clearTimeout(minuterieSauvegarde);
   minuterieSauvegarde = setTimeout(async () => {
-    const pos = { _version: VERSION_MOBILIER, _ajouts: ajouts },
+    const pos = { _version: VERSION_MOBILIER, _ajouts: ajouts, _portes: etatPortes },
       arrondi = p => ({ x: Math.round(p.x), y: Math.round(p.y), angle: p.angle, ...(p.reserve && { reserve: true }) });
     for (const g of meubles) {
       pos[g.userData.meuble.id] = arrondi(g.userData.places.avant);
@@ -2542,6 +2531,132 @@ function montrerFiche(o) {
     const touche = rayonMeuble.intersectObjects(vitresCliquables.filter(v => v.visible), false)[0];
     if (touche) montrerFiche(touche.object.userData.ouverture);
   });
+}
+// ---------- Simulateur de portes (18/11) ----------
+// Chaque porte intérieure et chaque porte-fenêtre ouvrante (o.debattement) a un vantail qui
+// pivote sur ses gonds, et son arc d'ouverture au sol (rayon = largeur du vantail, jusqu'à
+// o.ouvertureMax, 90° par défaut, 135° pour une porte-fenêtre qui se rabat contre le mur).
+// L'arc passe au rouge si un meuble visible est dans le passage. Toucher le vantail : fiche
+// avec un curseur pour ouvrir ou fermer, et les réglages (côté des gonds, sens d'ouverture),
+// enregistrés avec les positions des meubles (_portes).
+var portes = null; // (var : appliquerPhase peut être appelé avant que ce bloc ne soit lu)
+var etatPortes = (positionsMeubles && positionsMeubles._portes) || {};
+const matVantail = new THREE.MeshStandardMaterial({ color: '#f1efe9', roughness: 0.6 });
+const matArcLibre = new THREE.MeshBasicMaterial({ color: '#f08a24', transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide });
+const matArcGene = new THREE.MeshBasicMaterial({ color: '#d1242f', transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide });
+function etatPorte(p) {
+  const e = etatPortes[p.cle] || {};
+  return { angle: e.angle ?? 0, charniere: e.charniere || p.o.charniere || 'a', sens: e.sens ?? p.o.sens ?? p.sensDefaut };
+}
+function geomPorte(p) {
+  const { charniere, sens } = etatPorte(p);
+  const s = charniere === 'a' ? p.o.pos : p.o.pos + p.o.largeur, n = [p.N[0] * sens, p.N[1] * sens], dec = p.m.ep / 2;
+  return { H: [p.ax + p.ux * s + n[0] * dec, p.ay + p.uy * s + n[1] * dec], d0: charniere === 'a' ? [p.ux, p.uy] : [-p.ux, -p.uy], n };
+}
+const dirPorte = (g, t) => [g.d0[0] * Math.cos(t) + g.n[0] * Math.sin(t), g.d0[1] * Math.cos(t) + g.n[1] * Math.sin(t)];
+function genesPorte(p, g) {
+  const noms = new Set(), tm = p.max * Math.PI / 180;
+  for (const f of meubles) {
+    const u = f.userData, mm = u.meuble;
+    if (!f.visible || mm.libre || mm.niveau || (mm.h ?? 50) < 5 || (mm.z || 0) > 195) continue;
+    const l = mm.l || MODELES[mm.modele]?.l, pp = mm.p || MODELES[mm.modele]?.p;
+    if (!l || !pp) continue;
+    const a = u.angle * Math.PI / 180, ex = [Math.cos(a), Math.sin(a)], ez = [Math.sin(a), -Math.cos(a)];
+    test: for (let r = 6; r <= p.largeur; r += 6) for (let k = 0; k <= 27; k++) {
+      const d = dirPorte(g, tm * k / 27), dx = g.H[0] + d[0] * r - u.x, dy = g.H[1] + d[1] * r - u.y;
+      if (Math.abs(dx * ex[0] + dy * ex[1]) <= l / 2 && Math.abs(dx * ez[0] + dy * ez[1]) <= pp / 2) { noms.add(mm.nom || mm.id); break test; }
+    }
+  }
+  return [...noms];
+}
+function majPorte(p) {
+  const e = etatPorte(p), g = geomPorte(p), d = dirPorte(g, e.angle * Math.PI / 180), tm = p.max * Math.PI / 180;
+  p.pivot.position.set(M(g.H[0]), 0, -M(g.H[1]));
+  p.pivot.rotation.y = Math.atan2(d[1], d[0]);
+  const pts = [new THREE.Vector2(M(g.H[0]), M(g.H[1]))];
+  for (let k = 0; k <= 24; k++) { const dd = dirPorte(g, tm * k / 24); pts.push(new THREE.Vector2(M(g.H[0] + dd[0] * p.largeur), M(g.H[1] + dd[1] * p.largeur))); }
+  const geo = new THREE.ShapeGeometry(new THREE.Shape(pts));
+  geo.rotateX(-Math.PI / 2);
+  p.arc.geometry.dispose();
+  p.arc.geometry = geo;
+  p.genes = genesPorte(p, g);
+  p.arc.material = p.genes.length ? matArcGene : matArcLibre;
+  if (p.vitre) { p.vitre.userData.porteOuverte = e.angle > 0; p.vitre.visible = e.angle === 0 && voirFenetres && visible(p.vitre.userData.phase); }
+}
+function majPortes() { for (const p of portes || []) majPorte(p); }
+portes = [];
+for (const m of murs) for (const o of m.ouvertures || []) {
+  if (!(o.debattement || (o.type === 'porte' && !o.vitree && !o.panneau))) continue;
+  const [ax, ay] = m.a, [bx, by] = m.b, lg = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / lg, uy = (by - ay) / lg, N = [-uy, ux];
+  const mil = o.pos + o.largeur / 2, d = m.ep / 2 + 15, px = ax + ux * mil, py = ay + uy * mil;
+  const piece = s => pieces.some(q => dans(q.poly, px + N[0] * d * s, py + N[1] * d * s));
+  const largeur = o.debattement || o.largeur, pivot = new THREE.Group();
+  const vitree = o.type === 'baie';
+  const vantail = new THREE.Mesh(new THREE.BoxGeometry(M(largeur - 2), M(o.haut - 2), 0.045), vitree ? matVitre : matVantail);
+  vantail.position.set(M(largeur / 2), M(o.haut / 2), 0);
+  pivot.add(vantail);
+  if (vitree) for (const [w, h, x, y] of [[largeur - 2, 6, largeur / 2, 3], [largeur - 2, 6, largeur / 2, o.haut - 4], [6, o.haut - 2, 4, o.haut / 2], [6, o.haut - 2, largeur - 4, o.haut / 2]]) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(M(w), M(h), 0.06), matMenuiserie);
+    b.position.set(M(x), M(y), 0);
+    pivot.add(b);
+  }
+  pivot.traverse(c => { c.castShadow = true; });
+  pivot.userData.menuiserie = true;
+  ajouter(pivot, m.phase, true);
+  const arc = new THREE.Mesh(new THREE.BufferGeometry(), matArcLibre);
+  arc.position.y = 0.007;
+  arc.userData.menuiserie = true;
+  ajouter(arc, m.phase, false);
+  const p = { cle: `${m.id}@${Math.round(o.pos)}`, m, o, ax, ay, ux, uy, N, sensDefaut: piece(1) || !piece(-1) ? 1 : -1, largeur,
+    max: o.ouvertureMax || (o.debattement ? 135 : 90), pivot, vantail, arc, vitre: vitresCliquables.find(v => v.userData.ouverture === o) };
+  pivot.traverse(c => { c.userData.porte = p; });
+  portes.push(p);
+}
+majPortes();
+function montrerFichePorte(p) {
+  const e = etatPorte(p), d = p.o.devis, ligne = (t, v) => v ? `<div><span style="color:#9fb0bf">${t}</span> ${esc(v)}</div>` : '';
+  const btn = (act, lib) => `<button data-porte="${act}" style="border:0;background:#38424a;color:#fff;border-radius:999px;padding:5px 10px;margin:6px 6px 0 0;cursor:pointer;font:600 13px system-ui">${lib}</button>`;
+  ficheFenetre.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(p.o.nom || 'Porte')}</b><button data-fermer style="border:0;background:#38424a;color:#fff;border-radius:999px;padding:2px 9px;cursor:pointer">✕</button></div>
+    ${ligne('Vantail :', `${Math.round(p.largeur)} cm, ouverture jusqu'à ${p.max}°`)}
+    <label style="display:block;margin-top:8px">Ouverture : <b data-angle>${e.angle}°</b><input data-curseur type="range" min="0" max="${p.max}" value="${e.angle}" style="width:100%;accent-color:#f2b705"></label>
+    <div>${btn('fermer', 'Fermer')}${btn('ouvrir', 'Ouvrir à fond')}${btn('gonds', '⇄ Côté des gonds')}${btn('sens', '⇄ Sens d\'ouverture')}</div>
+    <div data-genes style="margin-top:8px;color:${p.genes?.length ? '#ff8a80' : '#9fd3a8'}">${p.genes?.length ? `⚠ Gêne l'ouverture : ${esc(p.genes.join(', '))}` : '✓ Rien dans l\'arc d\'ouverture'}</div>
+    ${d ? ligne('Devis :', `${d.entreprise} n° ${d.numero}`) + ligne('Commandé :', d.designation) + ligne('Prix :', d.prix)
+      + (d.lien ? `<a href="${esc(d.lien)}" style="display:inline-block;margin-top:8px;color:#1e2429;background:#f2b705;border-radius:999px;padding:5px 12px;font-weight:600;text-decoration:none">Voir le devis</a>` : '') : ''}`;
+  ficheFenetre.style.display = 'block';
+  const regler = (champs, garder = true) => {
+    etatPortes[p.cle] = { ...etatPorte(p), ...champs };
+    majPorte(p);
+    if (garder) { sauverMeubles(); montrerFichePorte(p); }
+    else {
+      ficheFenetre.querySelector('[data-angle]').textContent = `${etatPorte(p).angle}°`;
+      const g = ficheFenetre.querySelector('[data-genes]');
+      g.style.color = p.genes.length ? '#ff8a80' : '#9fd3a8';
+      g.textContent = p.genes.length ? `⚠ Gêne l'ouverture : ${p.genes.join(', ')}` : '✓ Rien dans l\'arc d\'ouverture';
+    }
+  };
+  const c = ficheFenetre.querySelector('[data-curseur]');
+  c.addEventListener('input', () => regler({ angle: +c.value }, false));
+  c.addEventListener('change', () => sauverMeubles());
+  ficheFenetre.querySelectorAll('[data-porte]').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.porte, e2 = etatPorte(p);
+    if (a === 'fermer') regler({ angle: 0 });
+    if (a === 'ouvrir') regler({ angle: p.max });
+    if (a === 'gonds') regler({ charniere: e2.charniere === 'a' ? 'b' : 'a' });
+    if (a === 'sens') regler({ sens: -e2.sens });
+  }));
+}
+{
+  let depart = null;
+  rendu.domElement.addEventListener('pointerdown', e => { depart = { x: e.clientX, y: e.clientY }; });
+  rendu.domElement.addEventListener('pointerup', e => {
+    if (!depart || Math.hypot(e.clientX - depart.x, e.clientY - depart.y) > 6 || modeMeubles || elec().actif) return;
+    const r = rendu.domElement.getBoundingClientRect();
+    pointeur.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    rayonMeuble.setFromCamera(pointeur, mode === 'visite' ? camVisite : camEnsemble);
+    const touche = rayonMeuble.intersectObjects(portes.filter(p => p.pivot.visible).map(p => p.pivot), true)[0];
+    if (touche) { e.stopImmediatePropagation(); montrerFichePorte(touche.object.userData.porte); }
+  }, true);
 }
 // Barre de boutons qui défile : fondu à droite tant qu'il reste des boutons cachés ; la molette
 // fait aussi défiler la barre sur ordinateur.
