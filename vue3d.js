@@ -171,7 +171,8 @@ const matPlafond = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness:
 const matVitre = new THREE.MeshStandardMaterial({ color: '#a9cbe0', transparent: true, opacity: 0.28, roughness: 0.1, metalness: 0.1 });
 const matPorteGarage = new THREE.MeshStandardMaterial({ color: '#f2f1ec', roughness: 0.6 });
 const matRainure = new THREE.MeshStandardMaterial({ color: '#c9c7c0', roughness: 0.7 });
-// Menuiseries blanches (matMenuiserie, plus bas ; teinte des baies alu de l'extension à confirmer).
+// Menuiseries blanches (matMenuiserie, plus bas) : alu RAL 9016 blanc satiné d'après le devis
+// Probemat 2603011 (baies 3 et 2 vantaux, portes-fenêtres 790 à 1 vantail).
 let voirFenetres = true; // bouton « Fenêtres »
 let voirMeubles = true;  // bouton « Meubles » : cacher tous les meubles pour mieux voir le reste
 
@@ -333,7 +334,8 @@ function construireMur(m) {
 
   // Menuiserie d'une fenêtre ou d'une baie : dormant de 6 cm et montants entre vantaux,
   // dans le plan de la vitre. Bouton « Fenêtres » pour les afficher ou les masquer.
-  // Vantaux : 1 si la fenêtre fait 80 cm ou moins, 2 sinon ; une baie de 2,50 m et plus en a 3.
+  // Vantaux : ceux de l'ouverture (o.vantaux, d'après les devis) ; sinon 1 si la fenêtre fait
+  // 80 cm ou moins, 2 au-delà ; une baie de 2,50 m et plus en a 3.
   const menuiserie = (s, e, o) => {
     const z0 = o.allege, z1 = o.haut, c = 6;
     const barre = (a, b, h0, h1) => {
