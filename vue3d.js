@@ -111,12 +111,21 @@ function construireJardin() {
   haie(-40, 800, -40, 2900, 260, 140);
   haie(0, 2950, 1994, 2830, 320, 160);
   haie(2030, 2780, 2050, 250, 260, 150);
+  // À droite de la maison : la haie continue de la rue jusqu'au petit mur (Yoann, 18/11).
+  haie(2035, -480, 2035, 110, 200, 110);
   // Haie sur la rue, devant la pelouse : complète avant les travaux ; commencée à tailler
   // (le 18/11) pour laisser passer les engins de chantier.
   haie(900, -470, 2030, -470, 170, 90, 'avant');
   haie(900, -470, 2030, -470, 120, 70, 'apres', true);
-  // Claustra gris côté est, entre le pignon et la limite, avec un portillon (photo du pignon).
-  boite(1578, 120, 2030, 126, 180, 0, '#6d6a66', undefined, 0.8);
+  // Petit mur (claustra gris) côté est, entre le pignon et la limite, avec un portillon côté
+  // maison (photos du pignon et du passage). Il sera déposé pendant les travaux puis remis :
+  // on le laisse dans les deux phases.
+  boite(1700, 120, 1990, 126, 180, 0, '#6d6a66', undefined, 0.8);
+  boite(1578, 120, 1600, 126, 180, 0, '#3f3d3b', undefined, 0.8);           // poteau
+  boite(1600, 121, 1696, 125, 170, 5, '#7c7873', undefined, 0.8);           // portillon
+  boite(1696, 120, 1700, 126, 180, 0, '#3f3d3b', undefined, 0.8);           // poteau
+  for (let x = 1610; x < 1690; x += 12) boite(x, 119.5, x + 2, 120.5, 160, 10, '#5d5a56'); // lames
+  boite(1990, 120, 2010, 126, 180, 0, '#3f3d3b', undefined, 0.8);           // poteau de limite
 
   // Terrasse en bois contre la façade nord (photos du 18/11) : complète avant les travaux ;
   // aujourd'hui démontée, seules restent les lambourdes. Après : l'extension prend sa place.
@@ -190,7 +199,30 @@ const grainCrepi = texteCrepi();
 // emissive : un peu de lumière propre, sinon l'enduit à l'ombre vire au beige.
 const matCrepi = new THREE.MeshStandardMaterial({ color: '#fbf5ea', emissive: '#5c574d', roughness: 0.95, bumpMap: grainCrepi, bumpScale: 0.6 });
 const matCrepiPignon = new THREE.MeshStandardMaterial({ color: '#fbf5ea', emissive: '#5c574d', roughness: 0.95, side: THREE.DoubleSide });
-const matArdoise = new THREE.MeshStandardMaterial({ color: '#474c54', roughness: 0.7, side: THREE.DoubleSide });
+// Ardoise : 1 m de toit = 5 rangs de 20 cm de pureau, ardoises de 25 cm décalées d'un rang à
+// l'autre, gris-bleu un peu varié, joints sombres.
+function texteArdoise() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a2e33';
+  g.fillRect(0, 0, 256, 256);
+  let graine = 7;
+  const hasard = () => (graine = (graine * 16807) % 2147483647) / 2147483647;
+  const rang = 256 / 5, larg = 256 / 4;
+  for (let r = 0; r < 5; r++) {
+    for (let k = -1; k < 5; k++) {
+      const x = k * larg + (r % 2) * larg / 2, v = 62 + Math.round(hasard() * 18);
+      g.fillStyle = `rgb(${v},${v + 4},${v + 10})`;
+      g.fillRect(x + 1.5, r * rang + 1.5, larg - 3, rang - 2.5);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const matArdoise = new THREE.MeshStandardMaterial({ color: '#ffffff', map: texteArdoise(), roughness: 0.7, side: THREE.DoubleSide });
 const matVolet = new THREE.MeshStandardMaterial({ color: '#4b545e', roughness: 0.6 });
 const peintures = {};
 const materiauPeinture = couleur => (peintures[couleur] ??= new THREE.MeshStandardMaterial({ color: couleur, roughness: 0.92 }));
@@ -297,7 +329,8 @@ function construireMur(m) {
   };
 
   // Porte extérieure fermée, dans le plan du mur (photos du 18/11) : porte de garage blanche
-  // à rainures horizontales, ou porte pleine gris anthracite (entrée, garage côté jardin).
+  // coulissante latérale de 2007 (panneaux verticaux d'environ 48 cm, poignée), ou porte pleine
+  // gris anthracite (entrée, garage côté jardin).
   const porteExterieure = (s, e, o) => {
     const garage = o.panneau === 'garage';
     const plaque = (a, b, h0, h1, mat, ep = 0.04) => {
@@ -308,7 +341,11 @@ function construireMur(m) {
       ajouter(mesh, m.phase, false);
     };
     plaque(s, e, 0, o.haut, garage ? matPorteGarage : matVolet);
-    if (garage) for (let h = 40; h < o.haut - 10; h += 40) plaque(s + 2, e - 2, h - 0.6, h + 0.6, matRainure, 0.05);
+    if (garage) {
+      const n = Math.round((e - s) / 48);
+      for (let k = 1; k < n; k++) { const x = s + (e - s) * k / n; plaque(x - 0.6, x + 0.6, 2, o.haut - 2, matRainure, 0.05); }
+      plaque(e - 30, e - 18, 98, 104, matRainure, 0.07); // poignée
+    }
   };
 
   let curseur = 0;
@@ -1773,6 +1810,15 @@ function pan(points, materiau = matArdoise, phase) {
   const geo = new THREE.BufferGeometry().setFromPoints(points.map(([x, y, h]) => new THREE.Vector3(M(x), M(h), -M(y))));
   geo.setIndex(points.length === 4 ? [0, 1, 2, 0, 2, 3] : [0, 1, 2]);
   geo.computeVertexNormals();
+  // Coordonnées de texture en mètres, rangs d'ardoise parallèles à l'égout : le long de
+  // l'égout (x ou z selon le pan) et dans la pente (longueur vraie, en tenant compte de la hauteur).
+  const n = geo.attributes.normal, pos = geo.attributes.position, uv = [];
+  const versZ = Math.abs(n.getZ(0)) >= Math.abs(n.getX(0));
+  for (let i = 0; i < pos.count; i++) {
+    const [x, y, z] = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+    uv.push(versZ ? x : z, Math.hypot(versZ ? z : x, y) * Math.sign(y || 1));
+  }
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   const mesh = new THREE.Mesh(geo, materiau);
   mesh.material.side = THREE.DoubleSide;
   ajouter(mesh, phase, true);
