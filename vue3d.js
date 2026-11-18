@@ -131,6 +131,8 @@ function construireJardin() {
 const matMur = new THREE.MeshStandardMaterial({ color: '#f1ede6', roughness: 0.92 });
 const matPlafond = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 1, side: THREE.DoubleSide });
 const matVitre = new THREE.MeshStandardMaterial({ color: '#a9cbe0', transparent: true, opacity: 0.28, roughness: 0.1, metalness: 0.1 });
+// Menuiseries blanches (matMenuiserie, plus bas ; teinte des baies alu de l'extension à confirmer).
+let voirFenetres = true; // bouton « Fenêtres »
 
 // Chaque élément garde sa phase pour le bouton Avant / Après.
 const elements = [];
@@ -265,12 +267,31 @@ function construireMur(m) {
     if (bloque && z0 < 1.2 && z1 > 0.3) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(e - s) / 2, he: Math.max(ep, 0.06) / 2, phase: m.phase });
   };
 
+  // Menuiserie d'une fenêtre ou d'une baie : dormant de 6 cm et montants entre vantaux,
+  // dans le plan de la vitre. Bouton « Fenêtres » pour les afficher ou les masquer.
+  // Vantaux : 1 si la fenêtre fait 80 cm ou moins, 2 sinon ; une baie de 2,50 m et plus en a 3.
+  const menuiserie = (s, e, o) => {
+    const z0 = o.allege, z1 = o.haut, c = 6;
+    const barre = (a, b, h0, h1) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(M(b - a), M(h1 - h0), 0.07), matMenuiserie);
+      const mil = (a + b) / 2;
+      mesh.position.set(M(ax + ux * mil), M((h0 + h1) / 2), -M(ay + uy * mil));
+      mesh.rotation.y = angle;
+      mesh.userData.menuiserie = true;
+      ajouter(mesh, m.phase, false);
+    };
+    barre(s, e, z0, z0 + c); barre(s, e, z1 - c, z1);
+    barre(s, s + c, z0, z1); barre(e - c, e, z0, z1);
+    const n = o.vantaux || (o.type === 'baie' ? (o.largeur >= 250 ? 3 : 2) : o.largeur > 80 ? 2 : 1);
+    for (let k = 1; k < n; k++) { const x = s + (e - s) * k / n; barre(x - 4, x + 4, z0, z1); }
+  };
+
   let curseur = 0;
   for (const o of ouvertures) {
     pave(curseur, o.pos, 0, H);
     const s = o.pos, e = o.pos + o.largeur;
     if (o.allege > 0) pave(s, e, 0, M(o.allege));
-    if (o.type === 'fenetre' || o.type === 'baie') pave(s, e, M(o.allege), M(o.haut), matVitre, true);
+    if (o.type === 'fenetre' || o.type === 'baie') { pave(s, e, M(o.allege), M(o.haut), matVitre, true); menuiserie(s, e, o); }
     if (o.type === 'porte' && o.vitree) porteVitree(m, o, angle, ux, uy);
     if (o.type === 'arche') arche(m, o, angle, ux, uy, ep);
     else pave(s, e, M(o.haut), H, matMur, false);
@@ -1722,12 +1743,13 @@ if (etage) {
 // sur le garage. Pente et débords supposés (40°, 30 cm) : à confirmer.
 // Visible en visite (on le voit de dehors) et, en vue d'ensemble, avec le bouton Toit.
 const toitDehors = [];
-function pan(points, materiau = matArdoise) {
+function pan(points, materiau = matArdoise, phase) {
   const geo = new THREE.BufferGeometry().setFromPoints(points.map(([x, y, h]) => new THREE.Vector3(M(x), M(h), -M(y))));
   geo.setIndex(points.length === 4 ? [0, 1, 2, 0, 2, 3] : [0, 1, 2]);
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, materiau);
-  ajouter(mesh, undefined, true);
+  mesh.material.side = THREE.DoubleSide;
+  ajouter(mesh, phase, true);
   mesh.userData.toitDehors = true;
   toitDehors.push(mesh);
 }
@@ -1739,18 +1761,46 @@ if (etage) {
   pan([[xo, yn, egout], [xe, yn, egout], [xe, yf, hf], [xo, yf, hf]]);
   // Pignons en crépi (triangles au-dessus des murs).
   for (const x of [320, 1578]) pan([[x, -deb, H * 100], [x, 938 + deb, H * 100], [x, yf, hf]], matCrepiPignon);
-  // Garage : quatre pans, plus bas.
-  const [gx0, gx1, gy0, gy1] = [0 - 20, 320, 145 - 20, 791 + 20], ge = 250, gm = (gx0 + gx1) / 2, gh = ge + p * (gm - gx0);
-  const r0 = gy0 + (gm - gx0), r1 = gy1 - (gm - gx0);
-  pan([[gx0, gy0, ge], [gx0, gy1, ge], [gm, r1, gh], [gm, r0, gh]]);
-  pan([[gx1, gy0, ge], [gx1, gy1, ge], [gm, r1, gh], [gm, r0, gh]]);
-  pan([[gx0, gy0, ge], [gx1, gy0, ge], [gm, r0, gh]]);
-  pan([[gx0, gy1, ge], [gx1, gy1, ge], [gm, r1, gh]]);
+  // Garage : un seul pan, adossé à la maison (dit par Yoann le 18/11) : égout côté limite
+  // ouest, il monte vers le pignon de la maison. Pente supposée 35°, à confirmer.
+  const pg = 0.7, [gx0, gx1, gy0, gy1] = [0 - 20, 320, 145 - 20, 791 + 20], ge = 250, gh = ge + pg * (gx1 - gx0);
+  pan([[gx0, gy0, ge], [gx0, gy1, ge], [gx1, gy1, gh], [gx1, gy0, gh]]);
+  // Murs en triangle au nord et au sud, sous le pan.
+  for (const y of [145, 791]) pan([[0, y, ge], [320, y, ge], [320, y, ge + pg * (320 - gx0)]], matCrepiPignon);
+
+  // Velux (plan de masse DPC02 et photos) : trois sur le pan nord, dont un double, un sur le
+  // pan sud. Cadre gris et vitre sombre, posés à plat sur l'ardoise. Tailles estimées sur le plan.
+  const hToit = y => (y < yf ? egout + p * (y - ys) : egout + p * (yn - y)) + 3;
+  const matCadreVelux = new THREE.MeshStandardMaterial({ color: '#5a5e63', roughness: 0.5 });
+  const matVitreVelux = new THREE.MeshStandardMaterial({ color: '#27313b', roughness: 0.15, metalness: 0.3 });
+  const velux = (xc, y0, y1, l) => {
+    const [xa, xb] = [xc - l / 2, xc + l / 2];
+    pan([[xa, y0, hToit(y0)], [xb, y0, hToit(y0)], [xb, y1, hToit(y1)], [xa, y1, hToit(y1)]], matCadreVelux);
+    const [ia, ib, j0, j1] = [xa + 7, xb - 7, y0 + 6, y1 - 6];
+    pan([[ia, j0, hToit(j0) + 1], [ib, j0, hToit(j0) + 1], [ib, j1, hToit(j1) + 1], [ia, j1, hToit(j1) + 1]], matVitreVelux);
+  };
+  velux(530, 650, 770, 78);
+  velux(842, 560, 680, 78); velux(842, 700, 820, 78);
+  velux(1394, 650, 770, 78);
+  velux(1110, 190, 310, 78);
+
+  // Extension : toit plat (plan de masse : acrotère à +3,15 m). Dalle à 3,00 m, acrotère
+  // en crépi tout autour. Seulement après travaux.
+  const [ex0, ex1, ey0, ey1] = [420, 932, 921, 1408], acro = 315, dalle = 300;
+  pan([[ex0, ey0, dalle], [ex1, ey0, dalle], [ex1, ey1, dalle], [ex0, ey1, dalle]], new THREE.MeshStandardMaterial({ color: '#4a4c50', roughness: 0.9 }), 'apres');
+  for (const [a, b] of [[[ex0, ey1], [ex1, ey1]], [[ex0, ey0], [ex0, ey1]], [[ex1, ey0], [ex1, ey1]]]) {
+    pan([[a[0], a[1], H * 100], [b[0], b[1], H * 100], [b[0], b[1], acro], [a[0], a[1], acro]], matCrepiPignon, 'apres');
+  }
 }
 let voirToit = false;
 document.getElementById('toit')?.addEventListener('click', () => {
   voirToit = !voirToit;
   document.getElementById('toit').setAttribute('aria-pressed', String(voirToit));
+  appliquerPhase();
+});
+document.getElementById('fenetres')?.addEventListener('click', () => {
+  voirFenetres = !voirFenetres;
+  document.getElementById('fenetres').setAttribute('aria-pressed', String(voirFenetres));
   appliquerPhase();
 });
 // Bouton Plafonds (vue d'ensemble) : plafonds du RDC en transparence, les zones peintes
@@ -1807,7 +1857,8 @@ function appliquerPhase() {
     e.visible = visible(e.userData.phase) && !e.userData.reserve &&
       (mode === 'visite' || !plafonds.includes(e) || (voirPlafonds && !voirEtage && plafondsRdc.includes(e))) &&
       (e.userData.niveau !== 1 || mode === 'visite' || voirEtage) &&
-      (!e.userData.toitDehors || mode === 'visite' || voirToit);
+      (!e.userData.toitDehors || mode === 'visite' || voirToit) &&
+      (!e.userData.menuiserie || voirFenetres);
   }
   reglerLampes(mode === 'visite');
   reglerCotes();
