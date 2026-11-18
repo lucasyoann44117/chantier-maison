@@ -344,7 +344,9 @@ function construireMur(m) {
     if (garage) {
       const n = Math.round((e - s) / 12); // lames étroites, porte « à l'ancienne » (Yoann, 18/11)
       for (let k = 1; k < n; k++) { const x = s + (e - s) * k / n; plaque(x - 0.6, x + 0.6, 2, o.haut - 2, matRainure, 0.05); }
-      plaque(e - 30, e - 18, 98, 104, matRainure, 0.07); // poignée
+      // Poignée à gauche vue de dehors, serrure à clé dessous (Yoann, 18/11).
+      plaque(s + 18, s + 30, 98, 104, matRainure, 0.07);
+      plaque(s + 22.5, s + 25.5, 90, 93, matVolet, 0.075);
     }
   };
 
