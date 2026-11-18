@@ -173,6 +173,7 @@ const matPorteGarage = new THREE.MeshStandardMaterial({ color: '#f2f1ec', roughn
 const matRainure = new THREE.MeshStandardMaterial({ color: '#c9c7c0', roughness: 0.7 });
 // Menuiseries blanches (matMenuiserie, plus bas ; teinte des baies alu de l'extension à confirmer).
 let voirFenetres = true; // bouton « Fenêtres »
+let voirMeubles = true;  // bouton « Meubles » : cacher tous les meubles pour mieux voir le reste
 
 // Chaque élément garde sa phase pour le bouton Avant / Après.
 const elements = [];
@@ -1070,6 +1071,17 @@ const MODELES = {
     livres(0, 0.29, y1, y2 - y1 - 6); livres(0.29, 1, y1, y2 - y1 - 6);
     livres(0, 0.73, 0, y1 - 6);
   } },
+  // Banquette de restaurant (module à juxtaposer, 18/11) : pieds métal noir de 12 cm, assise
+  // à 47 cm comme les chaises, dossier à coutures verticales, hauteur totale h. Avant = +Z.
+  banquetteChr: { construire(g, o) {
+    const { l, p } = o, h = o.h || 98, c = o.couleur || '#1f6f78', pied = 12, assise = 47, ep = 16;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) piece3d(g, 3, pied, 3, sx * (l / 2 - 5), pied / 2, sz * (p / 2 - 6), 'noir');
+    piece3d(g, l, assise - pied, p - ep, 0, pied + (assise - pied) / 2, ep / 2, c);       // assise
+    piece3d(g, l, h - pied, ep, 0, pied + (h - pied) / 2, -p / 2 + ep / 2, c);           // dossier
+    const couture = o.couture || '#' + new THREE.Color(c).multiplyScalar(0.62).getHexString(); // un ton plus foncé
+    for (let x = -l / 2 + 12.5; x < l / 2 - 1; x += 12.5) piece3d(g, 0.6, h - assise - 6, 0.3, x, assise + (h - assise) / 2, -p / 2 + ep + 0.2, couture);
+    piece3d(g, l, 0.8, 0.4, 0, assise - 0.4, p / 2 + 0.2, couture);                        // passepoil de l'assise
+  } },
   // Lit : sommier, matelas, couette (linge) sur les deux tiers, oreillers ; tete = tête de lit.
   lit: { construire(g, o) {
     // pieds = hauteur des pieds sous le sommier (lit de Marine : pieds en bois, photos du 16/11).
@@ -1914,6 +1926,13 @@ document.getElementById('toit')?.addEventListener('click', () => {
   document.getElementById('toit').setAttribute('aria-pressed', String(voirToit));
   appliquerPhase();
 });
+document.getElementById('voir-meubles')?.addEventListener('click', () => {
+  voirMeubles = !voirMeubles;
+  document.getElementById('voir-meubles').setAttribute('aria-pressed', String(voirMeubles));
+  // Plus de meubles à l'écran : on sort du mode Déplacer.
+  if (!voirMeubles && modeMeubles) document.getElementById('meubles').click();
+  appliquerPhase();
+});
 document.getElementById('fenetres')?.addEventListener('click', () => {
   voirFenetres = !voirFenetres;
   document.getElementById('fenetres').setAttribute('aria-pressed', String(voirFenetres));
@@ -1974,7 +1993,8 @@ function appliquerPhase() {
       (mode === 'visite' || !plafonds.includes(e) || (voirPlafonds && !voirEtage && plafondsRdc.includes(e))) &&
       (e.userData.niveau !== 1 || mode === 'visite' || voirEtage) &&
       (!e.userData.toitDehors || mode === 'visite' || voirToit) &&
-      (!e.userData.menuiserie || voirFenetres);
+      (!e.userData.menuiserie || voirFenetres) &&
+      (!e.userData.meuble || voirMeubles);
   }
   reglerLampes(mode === 'visite');
   reglerCotes();
