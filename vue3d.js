@@ -139,6 +139,8 @@ function construireJardin() {
 const matMur = new THREE.MeshStandardMaterial({ color: '#f1ede6', roughness: 0.92 });
 const matPlafond = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 1, side: THREE.DoubleSide });
 const matVitre = new THREE.MeshStandardMaterial({ color: '#a9cbe0', transparent: true, opacity: 0.28, roughness: 0.1, metalness: 0.1 });
+const matPorteGarage = new THREE.MeshStandardMaterial({ color: '#f2f1ec', roughness: 0.6 });
+const matRainure = new THREE.MeshStandardMaterial({ color: '#c9c7c0', roughness: 0.7 });
 // Menuiseries blanches (matMenuiserie, plus bas ; teinte des baies alu de l'extension à confirmer).
 let voirFenetres = true; // bouton « Fenêtres »
 
@@ -294,6 +296,21 @@ function construireMur(m) {
     for (let k = 1; k < n; k++) { const x = s + (e - s) * k / n; barre(x - 4, x + 4, z0, z1); }
   };
 
+  // Porte extérieure fermée, dans le plan du mur (photos du 18/11) : porte de garage blanche
+  // à rainures horizontales, ou porte pleine gris anthracite (entrée, garage côté jardin).
+  const porteExterieure = (s, e, o) => {
+    const garage = o.panneau === 'garage';
+    const plaque = (a, b, h0, h1, mat, ep = 0.04) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(M(b - a), M(h1 - h0), ep), mat);
+      const mil = (a + b) / 2;
+      mesh.position.set(M(ax + ux * mil), M((h0 + h1) / 2), -M(ay + uy * mil));
+      mesh.rotation.y = angle;
+      ajouter(mesh, m.phase, false);
+    };
+    plaque(s, e, 0, o.haut, garage ? matPorteGarage : matVolet);
+    if (garage) for (let h = 40; h < o.haut - 10; h += 40) plaque(s + 2, e - 2, h - 0.6, h + 0.6, matRainure, 0.05);
+  };
+
   let curseur = 0;
   for (const o of ouvertures) {
     pave(curseur, o.pos, 0, H);
@@ -301,6 +318,7 @@ function construireMur(m) {
     if (o.allege > 0) pave(s, e, 0, M(o.allege));
     if (o.type === 'fenetre' || o.type === 'baie') { pave(s, e, M(o.allege), M(o.haut), matVitre, true); menuiserie(s, e, o); }
     if (o.type === 'porte' && o.vitree) porteVitree(m, o, angle, ux, uy);
+    if (o.type === 'porte' && o.panneau) porteExterieure(s, e, o);
     if (o.type === 'arche') arche(m, o, angle, ux, uy, ep);
     else pave(s, e, M(o.haut), H, matMur, false);
     curseur = e;
