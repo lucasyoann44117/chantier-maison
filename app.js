@@ -321,7 +321,7 @@
       return `<h3>${esc(n.nom)}</h3><table class="bilan surfaces">
         <thead><tr><th>Pièce</th><th>Au sol</th><th>≥ 1,80 m</th><th>&lt; 1,80 m</th></tr></thead>
         <tbody>${lignes}</tbody>
-        <tfoot><tr><td>Habitable</td><td data-label="Au sol">${m2(t.sol)}</td><td data-label="≥ 1,80 m">${m2(t.hab)}</td><td data-label="< 1,80 m">${t.bas ? m2(t.bas) : '–'}</td></tr></tfoot></table>`;
+        <tfoot><tr><td>Total</td><td data-label="Au sol">${m2(t.sol)}</td><td data-label="≥ 1,80 m">${m2(t.hab)}</td><td data-label="< 1,80 m">${t.bas ? m2(t.bas) : '–'}</td></tr></tfoot></table>`;
     }).join('');
     return `<details class="bloc surfaces-bloc" data-memo="surfaces-ouvert"${ouvert ? ' open' : ''}>
       <summary><span class="corps"><strong>Surfaces</strong><small>${m2(tot.hab)} habitables (≥ 1,80 m) · ${m2(tot.bas)} sous 1,80 m</small></span></summary>
@@ -330,7 +330,7 @@
         <li><span>Sous 1,80 m (combles, hors Carrez)</span>${m2(tot.bas)}</li>
         <li><span>Total au sol, hors garage</span>${m2(tot.sol)}</li>
         ${tot.annexe ? `<li><span>Garage</span>${m2(tot.annexe)}</li>` : ''}
-        ${tot.nouveau ? `<li><span>Gagné par l'extension (avant : ${m2(tot.hab - tot.nouveau)})</span>+ ${m2(tot.nouveau)}</li>` : ''}
+        ${tot.nouveau ? `<li><span>Gagné par l'extension (avant : ${m2(tot.hab - tot.nouveau)})</span><span class="m2">+ ${m2(tot.nouveau)}</span></li>` : ''}
       </ul>
       ${niveaux}
       <p class="discret">Source : ${esc(S.source || 'plans de l\'architecte')}.</p>
