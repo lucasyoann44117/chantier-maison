@@ -299,7 +299,7 @@
   // avec le bouton ⚡). Plan au propre, après travaux : murs gardés en plein, murs démolis en
   // pointillé. Couleur des points : existant noir, à déplacer vert, à ajouter bleu, à supprimer rouge.
   const TEINTES_ELEC = { existant: '#111', deplacer: '#2e8b57', nouveau: '#2f6fd0', retirer: '#c8372d' };
-  const NOMS_ELEC = { prise: 'Prise', prise2: 'Prise double', inter: 'Interrupteur', vav: 'Va-et-vient', rj45: 'Prise RJ45 / TV', lum: 'Point lumineux', applique: 'Applique' };
+  const NOMS_ELEC = { prise: 'Prise', prise2: 'Prise double', inter: 'Interrupteur', vav: 'Va-et-vient', rj45: 'Prise RJ45 / TV', lum: 'Point lumineux', applique: 'Applique', hp: 'Prise haut-parleur', hp4: 'Plastron 4 HP (8 bornes)' };
   function symboleElec(type, c) {
     const t = `stroke="${c}" stroke-width="2.2" fill="none"`;
     switch (type) {
@@ -308,6 +308,8 @@
       case 'inter': return `<circle cx="0" cy="8" r="6" ${t}/><path d="M4 12 L12 22" ${t}/>`;
       case 'vav': return `<circle cx="0" cy="8" r="6" ${t}/><path d="M4 12 L12 22 M-4 12 L-12 22" ${t}/>`;
       case 'rj45': return `<rect x="-9" y="0" width="18" height="13" ${t}/><text x="0" y="10" font-size="9" text-anchor="middle" fill="${c}" font-family="sans-serif">TV</text>`;
+      case 'hp': return `<rect x="-9" y="0" width="18" height="13" ${t}/><text x="0" y="10" font-size="8" text-anchor="middle" fill="${c}" font-family="sans-serif">HP</text>`;
+      case 'hp4': return `<rect x="-15" y="0" width="30" height="13" ${t}/><text x="0" y="10" font-size="8" text-anchor="middle" fill="${c}" font-family="sans-serif">HP×4</text>`;
       case 'applique': return `<path d="M0 -16 V0" ${t}/><circle cx="0" cy="9" r="9" ${t}/><path d="M-6 3 L6 15 M6 3 L-6 15" ${t}/>`;
       default: return `<circle r="13" ${t}/><path d="M-9 -9 L9 9 M9 -9 L-9 9" ${t}/>`; // point lumineux
     }

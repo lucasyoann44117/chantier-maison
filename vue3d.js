@@ -1237,6 +1237,72 @@ const MODELES = {
     piece3d(g, o.l, o.h, o.p, 0, o.h / 2, 0, o.mat || 'noir');
     piece3d(g, o.l - 4, o.h - 20, 0.4, 0, o.h / 2 + 4, o.p / 2 + 0.1, 'gris');
   } },
+  // Luminaires (sélecteur « Éclairage salon », 18/11), blanc chaud 2700 K, gradables. Chaque
+  // point a sa lumière (allumée en visite avec 💡 Lumière). o.points : [dx, dy] en cm autour du
+  // centre (plan). Formes : spots (encastrés), gorge (LED indirecte en périphérie), rail (noir,
+  // spots orientables), profils (LED linéaires encastrés), suspension (+ appliques), lampePied,
+  // lampeAPoser.
+  luminaire: { construire(g, o) {
+    const plafond = (o.plafond || HAUTEUR) - 1, puissance = o.puissance || 1.5;
+    const lueur = new THREE.MeshStandardMaterial({ color: '#fff6e8', emissive: '#ffe2b8', emissiveIntensity: 0.9 });
+    const lum = (dx, dy, z, p = puissance) => {
+      const l = new THREE.PointLight('#ffd9a8', 0, 0, 2);
+      l.position.set(M(dx), M(z), -M(dy));
+      l.userData.puissance = p; g.add(l); lampes.push(l);
+    };
+    const pts = o.points || [[0, 0]], f = o.forme;
+    if (f === 'spots') for (const [dx, dy] of pts) {
+      const s = new THREE.Mesh(new THREE.CylinderGeometry(M(4.5), M(4.5), M(1), 24), lueur); s.position.set(M(dx), M(plafond), -M(dy)); g.add(s);
+      piece3d(g, 10, 0.5, 10, dx, plafond + 0.2, -dy, 'blanc');
+      lum(dx, dy, plafond - 10);
+    }
+    if (f === 'gorge') {
+      const { l, p } = o;
+      for (const [w, d, dx, dy] of [[l, 3, 0, p / 2], [l, 3, 0, -p / 2], [3, p, l / 2, 0], [3, p, -l / 2, 0]]) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(M(w), M(1), M(d)), lueur); b.position.set(M(dx), M(plafond - 6), -M(dy)); g.add(b);
+        piece3d(g, w + 6, 12, d + 6, dx, plafond - 6, -dy, 'blanc'); // corniche qui cache le ruban
+        lum(dx * 0.8, dy * 0.8, plafond - 15, puissance);
+      }
+    }
+    if (f === 'rail') {
+      const [a, b] = [pts[0], pts[pts.length - 1]], lg = Math.hypot(b[0] - a[0], b[1] - a[1]) + 30;
+      const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const r = piece3d(g, lg, 3, 4, (a[0] + b[0]) / 2, plafond - 1.5, -(a[1] + b[1]) / 2, 'noir'); r.rotation.y = ang;
+      for (const [dx, dy] of pts) {
+        const s = new THREE.Mesh(new THREE.CylinderGeometry(M(3.5), M(3), M(12), 16), matMeuble('noir'));
+        s.position.set(M(dx), M(plafond - 11), -M(dy)); s.rotation.x = 0.5; g.add(s);
+        const d = new THREE.Mesh(new THREE.CircleGeometry(M(3), 16), lueur); d.rotation.x = Math.PI / 2 + 0.5; d.position.set(M(dx), M(plafond - 17), -M(dy) + 0.03); g.add(d);
+        lum(dx, dy, plafond - 25);
+      }
+    }
+    if (f === 'profils') for (const [dx, dy] of pts) {
+      piece3d(g, o.longueur || 200, 1, 5, dx, plafond, -dy, 'blanc');
+      const b = new THREE.Mesh(new THREE.BoxGeometry(M((o.longueur || 200) - 4), M(0.6), M(3)), lueur); b.position.set(M(dx), M(plafond - 0.6), -M(dy)); g.add(b);
+      lum(dx - 50, dy, plafond - 15, puissance / 2); lum(dx + 50, dy, plafond - 15, puissance / 2);
+    }
+    if (f === 'suspension') {
+      const [dx, dy] = pts[0], hs = o.hSuspension || 175, rr = (o.diametre || 60) / 2;
+      const cable = new THREE.Mesh(new THREE.CylinderGeometry(M(0.3), M(0.3), M(plafond - hs - 15), 6), matMeuble('noir'));
+      cable.position.set(M(dx), M((plafond + hs + 15) / 2), -M(dy)); g.add(cable);
+      const abat = new THREE.Mesh(new THREE.CylinderGeometry(M(rr), M(rr), M(30), 40, 1, true), new THREE.MeshStandardMaterial({ color: '#efe7da', emissive: '#ffd9a8', emissiveIntensity: 0.35, side: THREE.DoubleSide }));
+      abat.position.set(M(dx), M(hs + 15), -M(dy)); g.add(abat);
+      lum(dx, dy, hs + 10, puissance * 2);
+      for (const [ax, ay, angA] of o.appliques || []) { // appliques murales : demi-cylindre lumineux
+        const ap = new THREE.Mesh(new THREE.CylinderGeometry(M(7), M(7), M(18), 20, 1, false, 0, Math.PI), lueur);
+        ap.position.set(M(ax), M(180), -M(ay)); ap.rotation.y = angA * Math.PI / 180; g.add(ap);
+        lum(ax, ay, 175, puissance * 0.6);
+      }
+    }
+    if (f === 'lampePied' || f === 'lampeAPoser') for (const [dx, dy] of pts) {
+      const surTable = f === 'lampeAPoser', base = surTable ? 55 : 0, haut = surTable ? 45 : 155;
+      if (surTable) { piece3d(g, 45, 2, 45, dx, 54, -dy, 'chene'); piece3d(g, 4, 52, 4, dx, 26, -dy, 'noir'); }
+      piece3d(g, 3, haut - 25, 3, dx, base + (haut - 25) / 2, -dy, '#b8955a'); // pied laiton
+      const ab = new THREE.Mesh(new THREE.CylinderGeometry(M(surTable ? 14 : 20), M(surTable ? 18 : 24), M(surTable ? 22 : 30), 32, 1, true),
+        new THREE.MeshStandardMaterial({ color: '#efe4d2', emissive: '#ffcf95', emissiveIntensity: 0.4, side: THREE.DoubleSide }));
+      ab.position.set(M(dx), M(base + haut - 12), -M(dy)); g.add(ab);
+      lum(dx, dy, base + haut - 15, puissance);
+    }
+  } },
   // Enceinte compacte sur pied (18/11) : Focal Chorus 706 (39 × 22 × 26,3 cm, boomer 16,5 cm,
   // tweeter 25 mm en haut) sur pied Focal S 700 noir de 60 cm (socle, colonne, plateau). Avant = +Z.
   enceinteSurPied: { construire(g, o) {
@@ -2273,6 +2339,39 @@ function majSelecteurBanquettes(actif) {
   const txt = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   el.innerHTML = `<option value="">🛋 Banquette : aucune</option>` + variantes.map(v => `<option value="${txt(v)}">🛋 Banquette : ${txt(v)}</option>`).join('');
   el.value = posee;
+  majAutresSelecteurs(actif);
+}
+// Autres sélecteurs du même genre (après travaux) : une variante à la fois, posée à sa place.
+const SELECTEURS = [
+  { groupe: 'eclairage-salon', titre: '💡 Éclairage salon' },
+  { groupe: 'lampes-salon', titre: '🪔 Lampes d\'appoint' },
+];
+function majAutresSelecteurs(actif) {
+  let rang = 1;
+  for (const s of SELECTEURS) {
+    if (!s.el) {
+      s.el = document.createElement('select');
+      s.el.setAttribute('aria-label', s.titre);
+      s.el.style.cssText = selecteurBanquettes().style.cssText;
+      document.body.append(s.el);
+      s.el.addEventListener('change', () => {
+        for (const g of meubles.filter(x => x.userData.meuble.groupe === s.groupe)) {
+          const pose = g.userData.meuble.variante === s.el.value;
+          g.userData.places.apres = { ...(pose ? g.userData.defauts.apres : g.userData.places.apres), reserve: !pose };
+        }
+        appliquerPhase();
+        sauverMeubles();
+      });
+    }
+    const liste = meubles.filter(g => g.userData.meuble.groupe === s.groupe);
+    const variantes = [...new Set(liste.map(g => g.userData.meuble.variante))];
+    s.el.style.display = actif && phase === 'apres' && variantes.length ? 'block' : 'none';
+    if (s.el.style.display === 'none') continue;
+    s.el.style.top = `calc(var(--haut-reserve, 110px) + ${42 + 44 * rang++}px)`;
+    const txt = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    s.el.innerHTML = `<option value="">${s.titre} : aucun</option>` + variantes.map(v => `<option value="${txt(v)}">${s.titre} : ${txt(v)}</option>`).join('');
+    s.el.value = liste.find(g => !g.userData.places.apres?.reserve)?.userData.meuble.variante || '';
+  }
 }
 function majReserve() {
   // Bouton Réserve toujours visible en vue d'ensemble (plus besoin de passer par Déplacer, 18/11).
@@ -2375,6 +2474,9 @@ const TYPES_ELEC = {
   rj45: { lib: 'Prise RJ45 / TV', z: 25, l: 8 },
   // Lumières : point lumineux au plafond (on touche le sol de la pièce), applique murale.
   lum: { lib: 'Point lumineux (plafond)', z: HAUTEUR - 2, l: 24, plafond: true }, applique: { lib: 'Applique', z: 180, l: 14 },
+  // Audio (18/11) : prise haut-parleur murale près de chaque enceinte, et plastron 4 HP
+  // (8 bornes) derrière le home cinéma, où arrivent tous les câbles.
+  hp: { lib: 'Prise haut-parleur', z: 30, l: 8 }, hp4: { lib: 'Plastron 4 haut-parleurs (8 bornes)', z: 55, l: 26 },
 };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 // Code couleur du plan électrique (Yoann et Sophie, 18/11) : existant en noir sur le plan
@@ -2400,6 +2502,14 @@ function dessinerPoint(p) {
   if (p.type === 'prise') trou(0);
   else if (p.type === 'prise2') { trou(-3.6); trou(3.6); }
   else if (p.type === 'rj45') { const c = new THREE.Mesh(new THREE.BoxGeometry(M(3), M(2.5), M(0.4)), fonce); c.position.z = M(0.6); g.add(c); }
+  else if (p.type === 'hp' || p.type === 'hp4') {
+    // Bornes rouge et noire : 1 paire (prise HP) ou 4 paires (plastron 8 bornes).
+    const paires = p.type === 'hp4' ? 4 : 1, pas = t.l / paires;
+    for (let k = 0; k < paires; k++) for (const [dy, c] of [[1.6, '#c8372d'], [-1.6, '#1d1d1f']]) {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(M(0.9), M(0.9), M(1.2), 12), new THREE.MeshStandardMaterial({ color: c }));
+      b.rotation.x = Math.PI / 2; b.position.set(M(-t.l / 2 + pas * (k + 0.5)), M(dy), M(0.8)); g.add(b);
+    }
+  }
   else if (p.type === 'lum' || p.type === 'applique') {
     // Lumière : disque lumineux (au plafond, à plat ; applique contre le mur).
     g.remove(plaque);
