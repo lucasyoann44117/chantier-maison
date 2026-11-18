@@ -175,6 +175,7 @@ const matRainure = new THREE.MeshStandardMaterial({ color: '#c9c7c0', roughness:
 // Probemat 2603011 (baies 3 et 2 vantaux, portes-fenêtres 790 à 1 vantail).
 let voirFenetres = true; // bouton « Fenêtres »
 let voirMeubles = true;  // bouton « Meubles » : cacher tous les meubles pour mieux voir le reste
+const vitresCliquables = []; // vitres des fenêtres et baies : un clic ouvre leur fiche (devis)
 
 // Chaque élément garde sa phase pour le bouton Avant / Après.
 const elements = [];
@@ -330,6 +331,7 @@ function construireMur(m) {
     if (materiau !== matVitre) piecesDeMur.push(mesh); // pour cacher les cotes derrière un mur
     // Bloque la marche s'il occupe la hauteur d'une personne.
     if (bloque && z0 < 1.2 && z1 > 0.3) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(e - s) / 2, he: Math.max(ep, 0.06) / 2, phase: m.phase });
+    return mesh;
   };
 
   // Menuiserie d'une fenêtre ou d'une baie : dormant de 6 cm et montants entre vantaux,
@@ -379,7 +381,11 @@ function construireMur(m) {
     pave(curseur, o.pos, 0, H);
     const s = o.pos, e = o.pos + o.largeur;
     if (o.allege > 0) pave(s, e, 0, M(o.allege));
-    if (o.type === 'fenetre' || o.type === 'baie') { pave(s, e, M(o.allege), M(o.haut), matVitre, true); menuiserie(s, e, o); }
+    if (o.type === 'fenetre' || o.type === 'baie') {
+      const vitre = pave(s, e, M(o.allege), M(o.haut), matVitre, true);
+      if (vitre) { vitre.userData.ouverture = o; vitresCliquables.push(vitre); } // fiche au clic
+      menuiserie(s, e, o);
+    }
     if (o.type === 'porte' && o.vitree) porteVitree(m, o, angle, ux, uy);
     if (o.type === 'porte' && o.panneau) porteExterieure(s, e, o);
     if (o.type === 'arche') arche(m, o, angle, ux, uy, ep);
@@ -2421,6 +2427,35 @@ boutonElec.addEventListener('click', () => {
 document.getElementById('meubles')?.addEventListener('click', () => {
   if (modeMeubles && elec().actif) boutonElec.click();
 });
+// Fiche d'une fenêtre ou d'une baie : un toucher sur la vitre (hors modes Déplacer et ⚡)
+// montre ce qu'en dit le devis (o.devis : entreprise, numéro, désignation, prix, lien vers le
+// devis dans l'appli), comme la référence des meubles.
+const ficheFenetre = document.createElement('div');
+ficheFenetre.style.cssText = 'position:fixed;left:12px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:7;display:none;width:min(340px,calc(100vw - 24px));background:#1e2429;color:#fff;border-radius:14px;padding:12px;font:14px/1.4 system-ui;box-shadow:0 8px 24px rgb(0 0 0 / .4)';
+document.body.append(ficheFenetre);
+ficheFenetre.addEventListener('click', e => { if (e.target.closest('[data-fermer]')) ficheFenetre.style.display = 'none'; });
+function montrerFiche(o) {
+  const d = o.devis, lg = Math.round(o.largeur), h = Math.round(o.haut - o.allege);
+  const ligne = (t, v) => v ? `<div><span style="color:#9fb0bf">${t}</span> ${esc(v)}</div>` : '';
+  ficheFenetre.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(o.nom || 'Fenêtre')}</b><button data-fermer style="border:0;background:#38424a;color:#fff;border-radius:999px;padding:2px 9px;cursor:pointer">✕</button></div>
+    ${ligne('Ouverture dans la maquette :', `${lg} × ${h} cm`)}
+    ${d ? ligne('Devis :', `${d.entreprise} n° ${d.numero}`) + ligne('Commandé :', d.designation) + ligne('Prix :', d.prix)
+      + (d.lien ? `<a href="${esc(d.lien)}" style="display:inline-block;margin-top:8px;color:#1e2429;background:#f2b705;border-radius:999px;padding:5px 12px;font-weight:600;text-decoration:none">Voir le devis</a>` : '')
+      : '<div style="color:#9fb0bf;margin-top:4px">Pas de devis : menuiserie existante conservée.</div>'}`;
+  ficheFenetre.style.display = 'block';
+}
+{
+  let depart = null;
+  rendu.domElement.addEventListener('pointerdown', e => { depart = { x: e.clientX, y: e.clientY }; });
+  rendu.domElement.addEventListener('pointerup', e => {
+    if (!depart || Math.hypot(e.clientX - depart.x, e.clientY - depart.y) > 6 || modeMeubles || elec().actif) return;
+    const r = rendu.domElement.getBoundingClientRect();
+    pointeur.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    rayonMeuble.setFromCamera(pointeur, mode === 'visite' ? camVisite : camEnsemble);
+    const touche = rayonMeuble.intersectObjects(vitresCliquables.filter(v => v.visible), false)[0];
+    if (touche) montrerFiche(touche.object.userData.ouverture);
+  });
+}
 // Barre de boutons qui défile : fondu à droite tant qu'il reste des boutons cachés ; la molette
 // fait aussi défiler la barre sur ordinateur.
 {
