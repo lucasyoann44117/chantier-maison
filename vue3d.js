@@ -88,11 +88,13 @@ function texteCrepi() {
   return t;
 }
 const grainCrepi = texteCrepi();
-const matCrepi = new THREE.MeshStandardMaterial({ color: '#ece8df', roughness: 0.95, bumpMap: grainCrepi, bumpScale: 1.2 });
-const matCrepiPignon = new THREE.MeshStandardMaterial({ color: '#ece8df', roughness: 0.95, side: THREE.DoubleSide });
-const matArdoise = new THREE.MeshStandardMaterial({ color: '#5d636b', roughness: 0.7, side: THREE.DoubleSide });
-// Volets : bleu plus doux que sur la photo de 2008 (dit par l'utilisateur), à recaler sur photo.
-const matVolet = new THREE.MeshStandardMaterial({ color: '#5f7a96', roughness: 0.6 });
+// Photos du 18/11 : enduit blanc crème (plus clair et plus chaud qu'avant, qui ressortait gris à
+// l'ombre), volets et portes gris anthracite, ardoise foncée.
+// emissive : un peu de lumière propre, sinon l'enduit à l'ombre vire au beige.
+const matCrepi = new THREE.MeshStandardMaterial({ color: '#fbf5ea', emissive: '#5c574d', roughness: 0.95, bumpMap: grainCrepi, bumpScale: 0.6 });
+const matCrepiPignon = new THREE.MeshStandardMaterial({ color: '#fbf5ea', emissive: '#5c574d', roughness: 0.95, side: THREE.DoubleSide });
+const matArdoise = new THREE.MeshStandardMaterial({ color: '#474c54', roughness: 0.7, side: THREE.DoubleSide });
+const matVolet = new THREE.MeshStandardMaterial({ color: '#4b545e', roughness: 0.6 });
 const peintures = {};
 const materiauPeinture = couleur => (peintures[couleur] ??= new THREE.MeshStandardMaterial({ color: couleur, roughness: 0.92 }));
 // UV d'une boîte à l'échelle réelle (une image = « echelle » mètres), sans rotation.
