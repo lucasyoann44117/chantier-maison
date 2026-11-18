@@ -194,6 +194,7 @@
       ${lienFinancement()}
       ${lienAssurances()}
       ${lienElectricite()}
+      ${blocSurfaces()}
       <section aria-label="Avancement des travaux">
         ${metre('Travaux', termines / D.postes.length, `${termines} poste${termines > 1 ? 's' : ''} terminé${termines > 1 ? 's' : ''} sur ${D.postes.length}`)}
       </section>
@@ -293,6 +294,47 @@
     return `<ul class="liste"><li><a class="ligne" href="#electricite">
       <span class="corps"><strong>Plan électrique</strong><small>${faites} étape${faites > 1 ? 's' : ''} faite${faites > 1 ? 's' : ''} sur ${etapes.length}</small></span>
       ${pastille(faites === etapes.length ? 'Prêt' : 'En cours', faites === etapes.length ? 'ok' : 'att')}</a></li></ul>`;
+  }
+
+  // ---------- Surfaces des pièces ----------
+  // Chiffres du plan de l'architecte (le plan fait foi), lus dans la maquette privée (rdc.surfaces).
+  // Habitable = hauteur sous plafond d'au moins 1,80 m (comme la loi Carrez) ; garage à part.
+  // Bloc repliable, l'état ouvert/fermé est retenu sur l'appareil.
+  function blocSurfaces() {
+    const S = D.rdc?.surfaces;
+    if (!S?.niveaux?.length) return '';
+    let ouvert = false;
+    try { ouvert = localStorage.getItem('surfaces-ouvert') === '1'; } catch {}
+    const r = v => Math.round(v * 100) / 100;
+    const m2 = v => `<span class="m2">${r(v).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</span>`;
+    const tot = { sol: 0, hab: 0, bas: 0, annexe: 0, nouveau: 0 };
+    const niveaux = S.niveaux.map(n => {
+      const t = { sol: 0, hab: 0, bas: 0 };
+      const lignes = n.pieces.map(([nom, sol, hab, note]) => {
+        const annexe = note === 'annexe', bas = annexe ? 0 : r(sol - hab);
+        if (annexe) tot.annexe += sol; else { t.sol += sol; t.hab += hab; t.bas += bas; }
+        if (note === 'nouveau') tot.nouveau += hab;
+        return `<tr${annexe ? ' class="annexe"' : ''}><td>${esc(nom)}${note === 'nouveau' ? '<small>extension</small>' : annexe ? '<small>hors habitable</small>' : ''}</td>
+          <td data-label="Au sol">${m2(sol)}</td><td data-label="≥ 1,80 m">${annexe ? '–' : m2(hab)}</td><td data-label="< 1,80 m">${bas ? m2(bas) : '–'}</td></tr>`;
+      }).join('');
+      tot.sol += t.sol; tot.hab += t.hab; tot.bas += t.bas;
+      return `<h3>${esc(n.nom)}</h3><table class="bilan surfaces">
+        <thead><tr><th>Pièce</th><th>Au sol</th><th>≥ 1,80 m</th><th>&lt; 1,80 m</th></tr></thead>
+        <tbody>${lignes}</tbody>
+        <tfoot><tr><td>Habitable</td><td data-label="Au sol">${m2(t.sol)}</td><td data-label="≥ 1,80 m">${m2(t.hab)}</td><td data-label="< 1,80 m">${t.bas ? m2(t.bas) : '–'}</td></tr></tfoot></table>`;
+    }).join('');
+    return `<details class="bloc surfaces-bloc" data-memo="surfaces-ouvert"${ouvert ? ' open' : ''}>
+      <summary><span class="corps"><strong>Surfaces</strong><small>${m2(tot.hab)} habitables (≥ 1,80 m) · ${m2(tot.bas)} sous 1,80 m</small></span></summary>
+      <ul class="recap-surfaces">
+        <li><span>Habitable, hauteur ≥ 1,80 m (type Carrez)</span>${m2(tot.hab)}</li>
+        <li><span>Sous 1,80 m (combles, hors Carrez)</span>${m2(tot.bas)}</li>
+        <li><span>Total au sol, hors garage</span>${m2(tot.sol)}</li>
+        ${tot.annexe ? `<li><span>Garage</span>${m2(tot.annexe)}</li>` : ''}
+        ${tot.nouveau ? `<li><span>Gagné par l'extension (avant : ${m2(tot.hab - tot.nouveau)})</span>+ ${m2(tot.nouveau)}</li>` : ''}
+      </ul>
+      ${niveaux}
+      <p class="discret">Source : ${esc(S.source || 'plans de l\'architecte')}.</p>
+    </details>`;
   }
 
   // Plan électrique du rez-de-chaussée, dessiné depuis la maquette (murs, pièces, points posés
@@ -1524,6 +1566,12 @@
     },
     deconnexion: async () => { await db.deconnexion(); location.hash = ''; location.reload(); },
   };
+
+  // Blocs repliables (<details data-memo="clé">) : ouvert ou fermé, retenu sur l'appareil.
+  document.addEventListener('toggle', e => {
+    const d = e.target;
+    if (d?.dataset?.memo) try { localStorage.setItem(d.dataset.memo, d.open ? '1' : '0'); } catch {}
+  }, true);
 
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-action]');

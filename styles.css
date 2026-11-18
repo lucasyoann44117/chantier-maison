@@ -619,6 +619,24 @@ a.puce { text-decoration: none; }
 .bilan tr.mal td:first-child { box-shadow: inset 4px 0 0 var(--mal); }
 .bilan tfoot td { font-family: var(--titre); font-size: 1.1rem; font-weight: 700; border-bottom: 0; border-top: 2px solid var(--jaune); }
 
+/* ---------- Surfaces (bloc repliable du Bilan) ---------- */
+.surfaces-bloc { background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); padding: 0 14px; margin: 12px 0; }
+.surfaces-bloc > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 12px 0; }
+.surfaces-bloc > summary::-webkit-details-marker { display: none; }
+.surfaces-bloc > summary .corps { flex: 1; display: flex; flex-direction: column; }
+.surfaces-bloc > summary small { color: var(--doux); }
+.surfaces-bloc > summary::after { content: "›"; font-size: 22px; color: var(--doux); transition: transform .2s; }
+.surfaces-bloc[open] > summary::after { transform: rotate(90deg); }
+.surfaces-bloc h3 { margin: 16px 0 6px; font-size: 15px; }
+.surfaces-bloc .bilan td { padding: 7px 10px; }
+.surfaces-bloc tr.annexe td { color: var(--doux); }
+.m2 { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.recap-surfaces { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--trait); }
+.recap-surfaces li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--trait); }
+.recap-surfaces li:first-child { font-weight: 700; }
+.recap-surfaces li span:first-child { color: var(--doux); }
+.recap-surfaces li:first-child span:first-child { color: var(--encre); }
+
 /* ---------- Listes ---------- */
 
 .liste {

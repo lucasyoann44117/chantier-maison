@@ -2390,12 +2390,35 @@ const rangés = () => meubles.filter(g => visible(g.userData.phase) && g.userDat
 // la pose aux places de la paire affichée (ou à ses places par défaut) et range les autres.
 // Toute nouvelle paire ainsi marquée apparaît dans la liste.
 const banquettesRepas = () => meubles.filter(g => g.userData.meuble.groupe === 'banquette-repas');
+// Les sélecteurs (banquette, éclairage, lampes) sont rangés derrière un seul bouton « 🎛 Choix »,
+// replié par défaut, pour ne pas masquer la vue 3D (Yoann, 18/11). L'état ouvert/fermé est retenu.
+function boiteChoix() {
+  if (boiteChoix.ui) return boiteChoix.ui;
+  const boite = document.createElement('div');
+  boite.style.cssText = 'position:fixed;right:12px;top:calc(var(--haut-reserve,110px) + 40px);z-index:5;display:none;flex-direction:column;align-items:flex-end;gap:6px;max-width:calc(100vw - 24px)';
+  const bouton = document.createElement('button');
+  bouton.style.cssText = `background:#1e2429;color:#fff;box-shadow:0 4px 14px rgb(0 0 0 / .3);${styleBouton}`;
+  const liste = document.createElement('div');
+  liste.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end;gap:6px';
+  let ouvert = false;
+  try { ouvert = localStorage.getItem('maquette-choix') === '1'; } catch {}
+  const maj = () => {
+    liste.style.display = ouvert ? 'flex' : 'none';
+    bouton.textContent = ouvert ? '🎛 Choix ▴' : '🎛 Choix ▾';
+    bouton.setAttribute('aria-expanded', String(ouvert));
+  };
+  bouton.onclick = () => { ouvert = !ouvert; try { localStorage.setItem('maquette-choix', ouvert ? '1' : '0'); } catch {} maj(); };
+  maj();
+  boite.append(bouton, liste);
+  document.body.append(boite);
+  return (boiteChoix.ui = { boite, liste });
+}
 function selecteurBanquettes() {
   if (selecteurBanquettes.el) return selecteurBanquettes.el;
   const el = document.createElement('select');
   el.setAttribute('aria-label', 'Banquette du coin repas');
-  el.style.cssText = 'position:fixed;right:12px;top:calc(var(--haut-reserve, 110px) + 42px);z-index:6;display:none;font:600 14px system-ui;color:#fff;background:#1e2429;border:1px solid rgb(255 255 255 / .2);border-radius:999px;padding:7px 12px;max-width:calc(100vw - 24px)';
-  document.body.append(el);
+  el.style.cssText = 'display:none;font:600 14px system-ui;color:#fff;background:#1e2429;border:1px solid rgb(255 255 255 / .2);border-radius:999px;padding:7px 12px;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgb(0 0 0 / .3)';
+  boiteChoix().liste.append(el);
   el.addEventListener('change', () => choisirBanquette(el.value));
   return (selecteurBanquettes.el = el);
 }
@@ -2443,12 +2466,13 @@ function majSelecteurBanquettes(actif) {
   const el = selecteurBanquettes(), liste = banquettesRepas();
   const variantes = [...new Set(liste.map(g => g.userData.meuble.variante))];
   el.style.display = actif && phase === 'apres' && variantes.length ? 'block' : 'none';
-  if (el.style.display === 'none') return;
+  if (el.style.display === 'none') { boiteChoix().boite.style.display = majAutresSelecteurs(actif) ? 'flex' : 'none'; return; }
   const posee = liste.find(g => !g.userData.places.apres?.reserve)?.userData.meuble.variante || '';
   const txt = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   el.innerHTML = `<option value="">🛋 Banquette : aucune</option>` + variantes.map(v => `<option value="${txt(v)}">🛋 Banquette : ${txt(v)}</option>`).join('');
   el.value = posee;
-  majAutresSelecteurs(actif);
+  const nb = majAutresSelecteurs(actif) + (el.style.display === 'none' ? 0 : 1);
+  boiteChoix().boite.style.display = nb ? 'flex' : 'none';
 }
 // Autres sélecteurs du même genre (après travaux) : une variante à la fois, posée à sa place.
 const SELECTEURS = [
@@ -2462,7 +2486,7 @@ function majAutresSelecteurs(actif) {
       s.el = document.createElement('select');
       s.el.setAttribute('aria-label', s.titre);
       s.el.style.cssText = selecteurBanquettes().style.cssText;
-      document.body.append(s.el);
+      boiteChoix().liste.append(s.el);
       s.el.addEventListener('change', () => {
         for (const g of meubles.filter(x => x.userData.meuble.groupe === s.groupe)) {
           const pose = g.userData.meuble.variante === s.el.value;
@@ -2476,11 +2500,12 @@ function majAutresSelecteurs(actif) {
     const variantes = [...new Set(liste.map(g => g.userData.meuble.variante))];
     s.el.style.display = actif && phase === 'apres' && variantes.length ? 'block' : 'none';
     if (s.el.style.display === 'none') continue;
-    s.el.style.top = `calc(var(--haut-reserve, 110px) + ${42 + 44 * rang++}px)`;
+    rang++;
     const txt = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     s.el.innerHTML = `<option value="">${s.titre} : aucun</option>` + variantes.map(v => `<option value="${txt(v)}">${s.titre} : ${txt(v)}</option>`).join('');
     s.el.value = liste.find(g => !g.userData.places.apres?.reserve)?.userData.meuble.variante || '';
   }
+  return rang - 1;
 }
 function majReserve() {
   // Bouton Réserve toujours visible en vue d'ensemble (plus besoin de passer par Déplacer, 18/11).
