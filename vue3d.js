@@ -428,7 +428,15 @@ function porteVitree(m, o, angle, ux, uy) {
   const x0 = -L / 2 + b, x1 = L / 2 - b, y0 = b * 1.6, y1 = h - b;
   // Verre dépoli (o.depoli) : un seul vitrage laiteux et opaque, sans petits bois : il éclaire un
   // peu sans laisser voir la buanderie (Sophie, 19/11 : « on ne doit pas voir à travers »).
-  pave(x1 - x0, y1 - y0, 0, (y0 + y1) / 2, o.depoli ? (porteVitree.depoli ||= new THREE.MeshStandardMaterial({ color: '#e7ebed', roughness: 1, metalness: 0, emissive: '#2a2c2e' })) : matVitre, 0.01);
+  // Moitié basse pleine avec chatière (o.chatiere, Sophie 19/11) : dépoli seulement en haut.
+  const yv = o.chatiere ? (y0 + y1) / 2 : y0;
+  if (o.chatiere) {
+    pave(x1 - x0, yv - y0, 0, (y0 + yv) / 2, matMenuiserie, 0.035);
+    const chat = 0.2, yc = y0 + 0.04 + chat / 2;
+    pave(chat + 0.03, chat + 0.03, 0, yc, new THREE.MeshStandardMaterial({ color: '#d9d9d6', roughness: 0.5 }), 0.05); // cadre de la chatière
+    pave(chat, chat, 0, yc, new THREE.MeshStandardMaterial({ color: '#3d4247', roughness: 0.3, transparent: true, opacity: 0.85 }), 0.055); // rabat teinté
+  }
+  pave(x1 - x0, y1 - yv, 0, (yv + y1) / 2, o.depoli ? (porteVitree.depoli ||= new THREE.MeshStandardMaterial({ color: '#e7ebed', roughness: 1, metalness: 0, emissive: '#2a2c2e' })) : matVitre, 0.01);
   if (!o.depoli) {
     for (let k = 1; k < 3; k++) pave(f, y1 - y0, x0 + (x1 - x0) * k / 3, (y0 + y1) / 2, matMenuiserie, 0.03);
     for (let k = 1; k < 5; k++) pave(x1 - x0, f, 0, y0 + (y1 - y0) * k / 5, matMenuiserie, 0.03);
@@ -2714,11 +2722,26 @@ function dessinerPoint(p) {
   s.groupe.add(g);
   s.meshes.set(p.id, g);
 }
+// Point posé sur un mur qui n'existe qu'avant travaux (ancienne façade démolie) : on ne le
+// montre pas « dans le vide » après travaux (Yoann, 19/11, vu au casque dans l'extension).
+const avantSeul = new WeakMap();
+function surMurAvantSeulement(p) {
+  if (p.niv) return false;
+  const proches = murs.filter(m => {
+    const [ax, ay] = m.a, [bx, by] = m.b, L2 = (bx - ax) ** 2 + (by - ay) ** 2 || 1;
+    const k = Math.max(0, Math.min(1, ((p.x - ax) * (bx - ax) + (p.y - ay) * (by - ay)) / L2));
+    return Math.hypot(p.x - ax - k * (bx - ax), p.y - ay - k * (by - ay)) <= (m.ep || 10) / 2 + 3;
+  });
+  return proches.length > 0 && proches.every(m => m.phase === 'avant');
+}
 function majElec() {
   const s = elec();
   for (const g of s.groupe.children) {
     const p = g.userData.point;
-    const phaseOk = p.etat === 'existant' || p.etat === 'deplacer' || (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant');
+    // (cache à part : ne pas l'enregistrer dans les points du foyer)
+    if (!avantSeul.has(p)) avantSeul.set(p, surMurAvantSeulement(p));
+    const phaseOk = (p.etat === 'existant' || p.etat === 'deplacer') ? !(phase === 'apres' && avantSeul.get(p))
+      : (p.etat === 'nouveau' ? phase === 'apres' : phase === 'avant');
     g.visible = phaseOk && niveauMontre(p.niv ? 1 : 0);
     const choisi = s.choisi === p;
     g.scale.setScalar(choisi ? 1.6 : 1);
