@@ -3364,6 +3364,18 @@ boutonVR.addEventListener('click', async () => {
   etatVR.etape = 'session obtenue'; majSuiviVR();
   if (mode !== 'visite') changerMode('visite');
   lacetChariot = joueur.lacet; // on garde l'orientation de la visite
+  // Chrome (157) gère les calques WebXR : three.js prend alors une « projection layer », et avec
+  // SteamVR (Index) aucune image n'est jamais livrée (« la page ne répond pas » dans le casque).
+  // On cache les calques à three.js pour cette session : il revient au XRWebGLLayer classique,
+  // qui fonctionne (testé le 19/11/2026, ~60-80 images/s).
+  const etatRendu = Object.getOwnPropertyDescriptor(XRSession.prototype, 'renderState');
+  if (etatRendu?.get) Object.defineProperty(s, 'renderState', {
+    configurable: true,
+    get() {
+      const rs = etatRendu.get.call(this);
+      return new Proxy(rs, { get: (t, k) => (k === 'layers' ? undefined : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+    },
+  });
   try { await rendu.xr.setSession(s); } catch (err) { erreurVR(err); throw err; }
   etatVR.etape = 'en cours'; majSuiviVR();
   s.addEventListener('end', () => { etatVR.etape = 'terminée'; majSuiviVR(); });
