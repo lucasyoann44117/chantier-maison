@@ -3338,10 +3338,17 @@ function majVR(dt) {
   etatVR.yeux = camXR.position.y;
   return camXR;
 }
+// Grip : il faut le TENIR une seconde pour basculer Avant / Après (Yoann, 19/11 : en tenant
+// simplement les manettes de l'Index, le grip se serrait sans le vouloir et la maison changeait).
 for (const i of [0, 1]) {
-  rendu.xr.getController(i).addEventListener('squeezestart', () => {
-    document.querySelector(`[data-phase="${phase === 'apres' ? 'avant' : 'apres'}"]`)?.click();
+  const c = rendu.xr.getController(i);
+  c.addEventListener('squeezestart', () => {
+    clearTimeout(c.userData.basculer);
+    c.userData.basculer = setTimeout(() => {
+      document.querySelector(`[data-phase="${phase === 'apres' ? 'avant' : 'apres'}"]`)?.click();
+    }, 1000);
   });
+  c.addEventListener('squeezeend', () => clearTimeout(c.userData.basculer));
 }
 const boutonVR = document.createElement('button');
 boutonVR.id = 'vr';
