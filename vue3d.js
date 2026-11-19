@@ -3442,8 +3442,8 @@ function erreurVR(err) {
 
 // ---------- Réalité virtuelle (casque SteamVR, via WebXR dans Chrome ou Edge) ----------
 // Bouton 🥽 VR : on entre dans la maison à taille réelle, au point de visite. Joystick gauche :
-// marcher (dans la direction du regard), joystick droit : tourner par crans de 30°, clic du
-// joystick droit : basculer Avant / Après. Les murs et l'escalier se gèrent comme en visite.
+// marcher (dans la direction du regard), clic du joystick gauche : assis / debout ; joystick
+// droit : tourner par crans de 30°, clic du joystick droit : basculer Avant / Après. Les murs et l'escalier se gèrent comme en visite.
 rendu.xr.enabled = true;
 rendu.xr.setReferenceSpaceType('local-floor');
 // Index : 2 écrans 1440 × 1600 à 90-144 Hz. Images allégées (70 % de la définition demandée par
@@ -3477,7 +3477,17 @@ function majVR(dt) {
       majVR.clic = clic;
       // Tourner par crans (plus confortable qu'une rotation continue en casque).
       if (Math.abs(ax) > 0.6 && cranTourne <= 0) { lacetChariot -= Math.sign(ax) * Math.PI / 6; cranTourne = 0.35; }
-    } else { marche.x = ax; marche.y = ay; }
+    } else {
+      marche.x = ax; marche.y = ay;
+      // Clic du joystick gauche : bascule assis / debout (Yoann, 19/11). Assis : la vue est
+      // remontée à 1,65 m quelle que soit la hauteur du casque ; debout : vraie hauteur.
+      const clicG = !!src.gamepad.buttons?.[3]?.pressed;
+      if (clicG && !majVR.clicG) {
+        const brut = camXR.position.y;
+        etatVR.assis = etatVR.assis ? 0 : Math.max(0, 1.65 - brut);
+      }
+      majVR.clicG = clicG;
+    }
   }
   cranTourne -= dt;
   majVisite(dt);
