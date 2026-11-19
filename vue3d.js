@@ -1391,6 +1391,16 @@ const MODELES = {
         lum(ax, ay, 175, puissance * 0.6);
       }
     }
+    // Petite lampe à poser directement sur un meuble (caissons du hall, 19/11) : pied céramique
+    // beige et abat-jour lin, ~40 cm, lumière chaude.
+    if (f === 'petiteLampe') for (const [dx, dy] of pts) {
+      piece3d(g, 11, 18, 11, dx, 9, -dy, '#d8cdb9');
+      piece3d(g, 1.5, 8, 1.5, dx, 22, -dy, '#b8955a');
+      const ab = new THREE.Mesh(new THREE.CylinderGeometry(M(10), M(13), M(16), 32, 1, true),
+        new THREE.MeshStandardMaterial({ color: '#efe6d6', emissive: '#ffcf95', emissiveIntensity: 0.45, side: THREE.DoubleSide }));
+      ab.position.set(M(dx), M(32), -M(dy)); g.add(ab);
+      lum(dx, dy, 30, puissance);
+    }
     if (f === 'lampePied' || f === 'lampeAPoser') for (const [dx, dy] of pts) {
       const surTable = f === 'lampeAPoser', base = surTable ? 55 : 0, haut = surTable ? 45 : 155;
       if (surTable) { piece3d(g, 45, 2, 45, dx, 54, -dy, 'chene'); piece3d(g, 4, 52, 4, dx, 26, -dy, 'noir'); }
@@ -2537,6 +2547,7 @@ function majSelecteurBanquettes(actif) {
 const SELECTEURS = [
   { groupe: 'eclairage-salon', titre: '💡 Éclairage salon' },
   { groupe: 'lampes-salon', titre: '🪔 Lampes d\'appoint' },
+  { groupe: 'rangement-hall', titre: '🗄 Caissons du hall' },
 ];
 function majAutresSelecteurs(actif) {
   let rang = 1;
