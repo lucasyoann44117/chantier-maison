@@ -385,14 +385,23 @@
       const cx = q.poly.reduce((t, p) => t + p[0], 0) / q.poly.length, cy = q.poly.reduce((t, p) => t + p[1], 0) / q.poly.length;
       return `<text x="${cx.toFixed(0)}" y="${(-cy).toFixed(0)}" font-size="26" text-anchor="middle" fill="#888" font-family="sans-serif">${esc(q.nom)}</text>`;
     }).join('');
-    const sym = points.map(p => {
+    // Points avec consigne (plan technique cuisine…) : numérotés sur le plan, détaillés dessous.
+    const notes = points.filter(p => p.note);
+    const num = p => {
+      const i = notes.indexOf(p);
+      if (i < 0) return '';
+      const vx = Math.sin(p.a), vy = Math.cos(p.a);
+      return `<g transform="translate(${P(p.x + vx * 70, p.y - vy * 70)})"><circle r="15" fill="#fff" stroke="#2f6fd0" stroke-width="2.5"/><text y="6" font-size="17" font-weight="700" text-anchor="middle" fill="#2f6fd0" font-family="sans-serif">${i + 1}</text></g>`;
+    };
+    const sym = points.map(p => num(p) + (() => {
       const c = TEINTES_ELEC[p.etat] || TEINTES_ELEC.existant;
       // Symboles agrandis (× 1,8) pour rester lisibles sur un plan imprimé en A4.
       if (p.type === 'lum') return `<g transform="translate(${P(p.x, p.y)}) scale(1.8)">${symboleElec('lum', c)}</g>`;
       const vx = Math.sin(p.a), vy = Math.cos(p.a); // vers la pièce, en coordonnées SVG (y vers le bas)
       const ang = Math.atan2(-vx, vy) * 180 / Math.PI;
       return `<g transform="translate(${P(p.x + vx * 28, p.y - vy * 28)}) rotate(${ang.toFixed(1)}) scale(1.8)">${symboleElec(p.type, c)}</g>`;
-    }).join('');
+    })()).join('');
+    const consignes = notes.length ? `<h3>Consignes</h3><ol class="consignes-elec">${notes.map(p => `<li><strong>${esc(p.note)}</strong> <small>${esc(NOMS_ELEC[p.type] || 'Point')} · ${p.z ? `${p.z} cm du sol` : 'au sol'}${p.etat === 'nouveau' ? ' · à ajouter' : ''}</small></li>`).join('')}</ol>` : '';
     const compte = {};
     for (const p of points) compte[p.etat] = (compte[p.etat] || 0) + 1;
     const legende = `<div class="legende-plan">
@@ -403,6 +412,7 @@
       <div class="plan-elec"><svg viewBox="${x0} ${-y1} ${x1 - x0} ${y1 - y0}" role="img" aria-label="Plan électrique du rez-de-chaussée">
         <rect x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" fill="#fff"/>${murs}${baies}${noms}${sym}</svg></div>
       ${legende}
+      ${consignes}
       <p class="pas-imprimer"><button class="btn" data-action="imprimer-plan">Imprimer ou enregistrer en PDF</button></p></section>`;
   }
 
@@ -419,6 +429,7 @@
         ${E.maj ? `<p class="discret">Mis à jour le ${date(E.maj)}.</p>` : ''}</section>
       ${planElectrique()}
       <section class="bloc"><h2>Code couleur du plan</h2><ul class="topo">${couleurs.map(([c, n, t]) => `<li><span style="display:inline-block;width:.9em;height:.9em;border-radius:50%;background:${c};border:1px solid #fff8;vertical-align:-.1em"></span> <strong>${n}</strong> : ${t}</li>`).join('')}</ul></section>
+      ${(E.sections || []).map(s => `<section class="bloc"><h2>${esc(s.titre)}</h2>${s.source ? `<p class="discret">${esc(s.source)}</p>` : ''}<ul class="topo">${s.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>`).join('')}
       ${(E.aFaire || []).length ? `<section class="bloc"><h2>À faire</h2><ul class="topo">${E.aFaire.map(t => `<li>${esc(t)}</li>`).join('')}</ul></section>` : ''}
       ${(E.tableaux || []).map(t => `<section class="bloc"><h2>${esc(t.nom)}</h2>${t.lieu ? `<p class="discret">${esc(t.lieu)}</p>` : ''}
         ${t.rangees.map(r => `<h3>${esc(r.titre)}</h3><ul class="liste">${r.modules.map(module).join('')}</ul>`).join('')}</section>`).join('')}

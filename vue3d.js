@@ -2601,7 +2601,8 @@ function supprimerAjout(g) {
 // État : existant (blanc, avant et après), à créer (vert, après seulement), à retirer
 // (rouge, avant seulement). Enregistré pour le foyer : window.MAISON_SAUVER_ELEC (ligne
 // « electricite » dans l'appli), sinon le navigateur. Point : { id, type, etat, x, y, z, a, niv }
-// (x, y en cm du plan ; z = hauteur du centre en cm ; a = direction du mur vers la pièce).
+// (x, y en cm du plan ; z = hauteur du centre en cm ; a = direction du mur vers la pièce ;
+// note facultative = consigne pour l'électricien, ex. « Plaque de cuisson 32 A »).
 const TYPES_ELEC = {
   prise: { lib: 'Prise', z: 25, l: 8 }, prise2: { lib: 'Prise double', z: 25, l: 15 },
   inter: { lib: 'Interrupteur', z: 110, l: 8 }, vav: { lib: 'Va-et-vient', z: 110, l: 8 },
@@ -2733,6 +2734,7 @@ function majPanneauElec() {
   if (s.choisi) {
     const p = s.choisi;
     html += `<p style="margin:8px 0 4px">${esc(TYPES_ELEC[p.type].lib)} · ${esc(pieceDuPoint(p))} · ${p.z} cm</p>` +
+      (p.note ? `<p style="margin:0 0 4px;color:#f5d36b">${esc(p.note)}</p>` : '') +
       Object.entries(ETATS_ELEC).map(([k, v]) => bouton('etat', k, v, p.etat === k, COULEURS_ELEC[k] === '#f6f4ef' ? '#6e7781' : COULEURS_ELEC[k])).join('') +
       `<div>${bouton('act', 'supprimer', 'Effacer de la maquette')}${bouton('act', 'lacher', 'OK', true)}</div>`;
   } else {
@@ -2747,7 +2749,8 @@ function majPanneauElec() {
     const parPiece = {};
     for (const p of vus) {
       const r = (parPiece[pieceDuPoint(p)] ||= {});
-      const cle = `${TYPES_ELEC[p.type].lib}${p.etat === 'existant' ? '' : ` (${ETATS_ELEC[p.etat].toLowerCase()})`}`;
+      // Point avec consigne (plan technique cuisine, etc.) : la consigne remplace le type.
+      const cle = `${p.note || TYPES_ELEC[p.type].lib}${p.etat === 'existant' ? '' : ` (${ETATS_ELEC[p.etat].toLowerCase()})`}`;
       r[cle] = (r[cle] || 0) + 1;
     }
     html += Object.keys(parPiece).length ? Object.entries(parPiece).sort().map(([piece, r]) =>

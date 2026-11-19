@@ -946,3 +946,8 @@ dialog[open]::backdrop { animation: voile .22s ease-out; }
   .plan-elec svg { min-width: 0; }
   .bloc h2 { color: #000; }
 }
+
+.consignes-elec { margin: 4px 0 12px; padding-left: 1.6em; }
+.consignes-elec li { margin: 4px 0; }
+.consignes-elec small { display: block; color: var(--doux); }
+
