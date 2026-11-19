@@ -386,7 +386,8 @@
       return `<text x="${cx.toFixed(0)}" y="${(-cy).toFixed(0)}" font-size="26" text-anchor="middle" fill="#888" font-family="sans-serif">${esc(q.nom)}</text>`;
     }).join('');
     // Points avec consigne (plan technique cuisine…) : numérotés sur le plan, détaillés dessous.
-    const notes = points.filter(p => p.note);
+    // (les notes des points existants, souvenirs de relevé photo, ne sont pas des consignes)
+    const notes = points.filter(p => p.note && p.etat !== 'existant');
     const num = p => {
       const i = notes.indexOf(p);
       if (i < 0) return '';
