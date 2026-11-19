@@ -3280,7 +3280,7 @@ document.body.append(suiviVR);
 const etatVR = { images: 0, etape: '', erreur: '' };
 function majSuiviVR() {
   suiviVR.style.display = 'block';
-  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
+  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.yeux ? `\nyeux à ${etatVR.yeux.toFixed(2).replace('.', ',')} m du sol` : ''}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
 }
 addEventListener('error', e => { etatVR.erreur = String(e.message || e.error); majSuiviVR(); });
 addEventListener('unhandledrejection', e => { etatVR.erreur = String(e.reason?.message || e.reason); majSuiviVR(); });
@@ -3333,6 +3333,9 @@ function majVR(dt) {
   majVisite(dt);
   chariot.position.set(joueur.x, joueur.alt, joueur.z);
   chariot.rotation.y = lacetChariot;
+  // Hauteur réelle des yeux au-dessus du sol de la maison (contrôle d'échelle : si elle dépasse
+  // la vraie taille, le sol de SteamVR est mal calé et la maison paraît plus petite).
+  etatVR.yeux = camXR.position.y;
   return camXR;
 }
 for (const i of [0, 1]) {
