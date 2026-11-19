@@ -426,9 +426,9 @@ function porteVitree(m, o, angle, ux, uy) {
   pave(L, b, 0, h - b / 2); pave(L, b * 1.6, 0, b * 0.8);
   pave(b, h, -L / 2 + b / 2, h / 2); pave(b, h, L / 2 - b / 2, h / 2);
   const x0 = -L / 2 + b, x1 = L / 2 - b, y0 = b * 1.6, y1 = h - b;
-  // Verre dépoli (o.depoli) : un seul vitrage laiteux, sans petits bois, qui laisse passer la
-  // lumière sans laisser voir (porte de la buanderie, Sophie 19/11).
-  pave(x1 - x0, y1 - y0, 0, (y0 + y1) / 2, o.depoli ? (porteVitree.depoli ||= new THREE.MeshStandardMaterial({ color: '#eef1f2', roughness: 0.95, metalness: 0, transparent: true, opacity: 0.82 })) : matVitre, 0.01);
+  // Verre dépoli (o.depoli) : un seul vitrage laiteux et opaque, sans petits bois : il éclaire un
+  // peu sans laisser voir la buanderie (Sophie, 19/11 : « on ne doit pas voir à travers »).
+  pave(x1 - x0, y1 - y0, 0, (y0 + y1) / 2, o.depoli ? (porteVitree.depoli ||= new THREE.MeshStandardMaterial({ color: '#e7ebed', roughness: 1, metalness: 0, emissive: '#2a2c2e' })) : matVitre, 0.01);
   if (!o.depoli) {
     for (let k = 1; k < 3; k++) pave(f, y1 - y0, x0 + (x1 - x0) * k / 3, (y0 + y1) / 2, matMenuiserie, 0.03);
     for (let k = 1; k < 5; k++) pave(x1 - x0, f, 0, y0 + (y1 - y0) * k / 5, matMenuiserie, 0.03);
@@ -797,8 +797,17 @@ for (const o of objets) {
     ajouter(spot, o.phase, false);
   } else {
     const h = M(o.h);
+    // Briquettes de parement (o.matiere 'briquette') : motif de 45 × 30 cm (2 briquettes de
+    // 22 × 6,5 cm par rang, joints de 1 cm), répété sur la largeur et la hauteur du bloc.
+    let mapBrique = null;
+    if (o.matiere === 'briquette') {
+      mapBrique = briquettes().clone();
+      mapBrique.needsUpdate = true;
+      mapBrique.repeat.set(Math.max(o.p, o.l) / 45, o.h / 30);
+    }
     const mat = o.matiere === 'chene'
       ? new THREE.MeshStandardMaterial({ color: o.couleur, map: veinage(), roughness: 0.65 })
+      : mapBrique ? new THREE.MeshStandardMaterial({ map: mapBrique, roughness: 0.92 })
       : new THREE.MeshStandardMaterial({ color: o.couleur, roughness: 0.7 });
     const geo = new THREE.BoxGeometry(M(o.l), h, M(o.p));
     if (o.matiere === 'chene') uvBois(geo, M(o.l), h, M(o.p));
@@ -810,6 +819,34 @@ for (const o of objets) {
     ajouter(mesh, o.phase);
     if (!o.z) obstacles.push({ cx: mesh.position.x, cz: mesh.position.z, angle, hl: M(o.l) / 2, he: M(o.p) / 2, phase: o.phase });
   }
+}
+
+// Briquettes beiges (parement derrière le poêle, Yoann et Sophie 19/11) : 4 rangs décalés de
+// 2 briquettes, teintes beiges variées, joints clairs. Une image, clonée par bloc.
+function briquettes() {
+  if (briquettes.t) return briquettes.t;
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = '#e6dfd2'; x.fillRect(0, 0, 256, 256);
+  const teintes = ['#d8c3a0', '#ccb38c', '#e0cfae', '#c8a982', '#d3bb95', '#dcc8a6'];
+  let n = 0;
+  for (let r = 0; r < 4; r++) {
+    const y = r * 64 + 4, dec = r % 2 ? 64 : 0;
+    for (let b = -1; b < 3; b++) {
+      const bx = b * 128 + dec + 4;
+      x.fillStyle = teintes[(n++ * 5 + r) % teintes.length];
+      x.fillRect(bx, y, 120, 56);
+      // grain : petites taches plus claires / plus foncées
+      for (let k = 0; k < 40; k++) {
+        x.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(90,60,30,0.10)';
+        x.fillRect(bx + Math.random() * 116, y + Math.random() * 52, 3 + Math.random() * 4, 2 + Math.random() * 3);
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return (briquettes.t = t);
 }
 
 // Veinage de chêne clair (gris sur blanc, multiplié par la couleur du meuble) :
@@ -999,9 +1036,19 @@ const MODELES = {
     piece3d(g, 49, 0.6, 0.4, 0, 57, z, 'joint');
     for (const x of [-48, 0, 48]) bouton(x, 78);
     bouton(0, 64); bouton(-30, 46); bouton(30, 46); bouton(-14, 40);
-    corps(144, 113, 36, 0, 145.5, -7);
+    // Haut vitré (Sophie, 19/11 : « ça fait lourd sans les verres ») : vraie vitrine creuse,
+    // intérieur blanc avec une étagère et de la vaisselle, cadres peints, vitres claires.
+    // Avant : bloc plein peint derrière les vitres, qui paraissait massif une fois coloré.
+    piece3d(g, 144, 113, 1.5, 0, 145.5, -24.3, 'blanc'); // fond
+    for (const x of [-71.1, 71.1]) corps(1.8, 113, 36, x, 145.5, -7); // côtés
+    piece3d(g, 140, 1.8, 32, 0, 145, -7, 'blanc'); // étagère
+    for (const [y0, hA] of [[90.8, 22], [146.8, 22]]) for (let i = 0; i < 6; i++) {
+      piece3d(g, hA - 1, hA, 1, -55 + i * 22, y0 + hA / 2, -21, 'porcelaine'); // assiettes debout, face à la vitre
+    }
+    for (const [y, h] of [[95.5, 13], [145, 6], [195, 14]]) corps(144, h, 2, 0, y, 10.2); // traverses
     for (const [k, x] of [-47, 0, 47].entries()) {
-      for (const dx of [-10.5, 10.5]) for (const y of [122, 168]) piece3d(g, 18, 40, 0.6, x + dx, y, 11.4, 'vitre');
+      for (const [dx, w] of [[-21.5, 4], [0, 3], [21.5, 4]]) corps(w, 113, 2, x + dx, 145.5, 10.2); // montants
+      for (const dx of [-10.5, 10.5]) for (const y of [122, 168]) piece3d(g, 18, 40, 0.4, x + dx, y, 10.6, 'vitre');
       piece3d(g, 0.6, 108, 0.4, x + 23.5, 145, 11.5, 'joint');
       piece3d(g, 2, 8, 0.5, x + (k === 2 ? -20 : 20), 145, 11.6, 'noir'); // poignée encastrée
     }
