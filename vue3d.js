@@ -8,6 +8,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const { HAUTEUR, murs, pieces, objets, etage } = window.MAISON;
 
 const M = v => v / 100;
+// Plafond au choix et couches de peinture par mur (remplies à la construction, lues par le
+// sélecteur « 🎨 Plafond cuisine ») : déclarées ici, avant la construction des murs.
+var zonesPlafondChoix = [], couchesPeintes = [];
 const H = M(HAUTEUR);
 const CENTRE = new THREE.Vector3(M(790), 0, -M(700));
 
@@ -302,6 +305,7 @@ function construireMur(m) {
               const mil = (debut + fin) / 2, d = m.ep / 2 + 0.3;
               couche.position.set(M(ax + ux * mil + nx * d), (z0 + z1) / 2, -M(ay + uy * mil + ny * d));
               couche.rotation.y = angle + (cote === 1 ? 0 : Math.PI);
+              if (p.peintureMurs?.[m.id]) couchesPeintes.push({ mur: m.id, piece: p, mesh: couche, couleur, base: p.peinture });
               ajouter(couche, p.phase || m.phase, false);
             }
             debut = null;
@@ -710,8 +714,24 @@ for (const p of pieces) {
   ajouter(plafond, p.phase, true);
   plafonds.push(plafond);
   plafondsRdc.push(plafond);
+  // plafondChoixZones : zones possibles du plafond peint, une seule combinaison montrée à la
+  // fois (sélecteur « 🎨 Plafond cuisine »). Elles remplacent alors plafondPeint.
+  if (p.plafondChoixZones) {
+    const couleur = p.plafondPeint?.[0]?.couleur || '#aecba0';
+    p.plafondChoixZones.forEach((poly, k) => {
+      const g = new THREE.ShapeGeometry(formeDe(poly));
+      g.rotateX(-Math.PI / 2);
+      const peint = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: couleur, roughness: 0.95, side: THREE.DoubleSide }));
+      peint.position.y = H - 0.004 - k * 0.0005;
+      peint.userData.peint = true;
+      ajouter(peint, p.phase, false);
+      plafonds.push(peint);
+      plafondsRdc.push(peint);
+      zonesPlafondChoix.push({ piece: p, k, mesh: peint });
+    });
+  }
   // plafondPeint : [{ poly, couleur }] = zone du plafond peinte (ex. au-dessus de la cuisine).
-  for (const z of p.plafondPeint || []) {
+  for (const z of p.plafondChoixZones ? [] : p.plafondPeint || []) {
     const g = new THREE.ShapeGeometry(formeDe(z.poly));
     g.rotateX(-Math.PI / 2);
     const peint = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: z.couleur, roughness: 0.95, side: THREE.DoubleSide }));
@@ -2575,7 +2595,48 @@ function majAutresSelecteurs(actif) {
     s.el.innerHTML = `<option value="">${s.titre} : aucun</option>` + variantes.map(v => `<option value="${txt(v)}">${s.titre} : ${txt(v)}</option>`).join('');
     s.el.value = liste.find(g => !g.userData.places.apres?.reserve)?.userData.meuble.variante || '';
   }
-  return rang - 1;
+  return rang - 1 + majSelecteurPlafond(actif);
+}
+// Sélecteur « 🎨 Plafond cuisine » (Yoann et Sophie, 19/11) : combinaisons de la pièce qui a
+// plafondChoix (zones peintes + retombée de poutre en vert ou non). Choix partagé par le foyer
+// (clé _plafond de la ligne mobilier), sinon gardé dans le navigateur.
+function choixPlafond() {
+  const p = pieces.find(q => q.plafondChoix && (!q.phase || q.phase === 'apres'));
+  return p && { p, liste: p.plafondChoix };
+}
+function appliquerPlafond(nom) {
+  const c = choixPlafond();
+  if (!c) return;
+  const v = c.liste.find(x => x.nom === nom) || c.liste[0];
+  appliquerPlafond.nom = v.nom;
+  for (const z of zonesPlafondChoix) z.mesh.material.visible = v.zones.includes(z.k);
+  for (const k of couchesPeintes) if (k.mur === 'poutre-cuisine') k.mesh.material = materiauPeinture(v.poutre ? k.couleur : k.base);
+}
+function majSelecteurPlafond(actif) {
+  const c = choixPlafond();
+  if (!c) return 0;
+  let el = majSelecteurPlafond.el;
+  if (!el) {
+    el = majSelecteurPlafond.el = document.createElement('select');
+    el.setAttribute('aria-label', 'Plafond de la cuisine');
+    el.style.cssText = selecteurBanquettes().style.cssText;
+    boiteChoix().liste.append(el);
+    const txt = s => String(s).replace(/[&<>"]/g, x => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[x]);
+    el.innerHTML = c.liste.map(v => `<option value="${txt(v.nom)}">🎨 Plafond cuisine : ${txt(v.nom)}</option>`).join('');
+    el.addEventListener('change', () => {
+      appliquerPlafond(el.value);
+      try { localStorage.setItem('maquette-plafond', el.value); } catch {}
+      window.MAISON_FUSIONNER_MOBILIER?.({ _plafond: el.value }).catch(err => console.warn('Plafond non enregistré', err));
+    });
+  }
+  el.style.display = actif && phase === 'apres' ? 'block' : 'none';
+  if (!appliquerPlafond.nom) {
+    let nom = window.MAISON_MOBILIER?._plafond;
+    try { nom ||= localStorage.getItem('maquette-plafond'); } catch {}
+    appliquerPlafond(nom);
+  }
+  el.value = appliquerPlafond.nom;
+  return el.style.display === 'none' ? 0 : 1;
 }
 function majReserve() {
   // Bouton Réserve toujours visible en vue d'ensemble (plus besoin de passer par Déplacer, 18/11).
