@@ -3355,6 +3355,11 @@ boutonVR.addEventListener('click', async () => {
     return;
   }
   etatVR.etape = 'demande de session'; etatVR.images = 0; etatVR.erreur = ''; majSuiviVR();
+  // Chrome demande l'accès au casque dans une bulle près de la barre d'adresse : sans réponse,
+  // la demande reste en attente sans erreur. On le dit à l'écran au bout de 3 s.
+  setTimeout(() => {
+    if (etatVR.etape === 'demande de session') { etatVR.etape = 'en attente : clique « Autoriser » dans la bulle de Chrome (en haut, près de l\'adresse), et vérifie que le casque est vert dans SteamVR'; majSuiviVR(); }
+  }, 3000);
   const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
   etatVR.etape = 'session obtenue'; majSuiviVR();
   if (mode !== 'visite') changerMode('visite');
