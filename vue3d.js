@@ -2610,7 +2610,10 @@ function appliquerPlafond(nom) {
   const v = c.liste.find(x => x.nom === nom) || c.liste[0];
   appliquerPlafond.nom = v.nom;
   for (const z of zonesPlafondChoix) z.mesh.material.visible = v.zones.includes(z.k);
-  for (const k of couchesPeintes) if (k.mur === 'poutre-cuisine') k.mesh.material = materiauPeinture(v.poutre ? k.couleur : k.base);
+  for (const k of couchesPeintes) {
+    if (k.mur === 'poutre-cuisine') k.mesh.material = materiauPeinture(v.poutre ? k.couleur : k.base);
+    if (k.mur === 'poutre-cuisine-bord') k.mesh.material = materiauPeinture(v.poutre === true ? k.couleur : k.base);
+  }
 }
 function majSelecteurPlafond(actif) {
   const c = choixPlafond();
