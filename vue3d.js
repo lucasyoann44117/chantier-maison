@@ -3426,7 +3426,7 @@ document.body.append(suiviVR);
 const etatVR = { images: 0, etape: '', erreur: '' };
 function majSuiviVR() {
   suiviVR.style.display = 'block';
-  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.yeux ? `\nyeux à ${etatVR.yeux.toFixed(2).replace('.', ',')} m du sol${etatVR.assis ? ' (mode assis : vue relevée)' : ''}` : ''}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
+  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.yeux ? `\nyeux à ${etatVR.yeux.toFixed(2).replace('.', ',')} m du sol${etatVR.assis ? ' (mode assis : vue relevée)' : ''}` : ''}${etatVR.boutons ? `\ndernier bouton : ${etatVR.boutons}` : ''}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
 }
 addEventListener('error', e => { etatVR.erreur = String(e.message || e.error); majSuiviVR(); });
 addEventListener('unhandledrejection', e => { etatVR.erreur = String(e.reason?.message || e.reason); majSuiviVR(); });
@@ -3467,7 +3467,11 @@ function majVR(dt) {
   eTete.setFromQuaternion(qTete, 'YXZ');
   joueur.lacet = eTete.y;
   marche.x = 0; marche.y = 0;
+  const appuyes = [];
   for (const src of rendu.xr.getSession()?.inputSources || []) {
+    // Diagnostic (19/11) : boutons appuyés par manette, affichés sur l'écran du PC.
+    const b = (src.gamepad?.buttons || []).map((x, i) => (x.pressed ? i : null)).filter(i => i !== null);
+    if (b.length) appuyes.push(`${src.handedness === 'right' ? 'droite' : 'gauche'} ${b.join(',')}`);
     const a = src.gamepad?.axes;
     if (!a || a.length < 4) continue;
     const ax = Math.abs(a[2]) > 0.15 ? a[2] : 0, ay = Math.abs(a[3]) > 0.15 ? a[3] : 0;
@@ -3502,6 +3506,7 @@ function majVR(dt) {
       majVR.clicG = clicG;
     }
   }
+  if (appuyes.length) etatVR.boutons = appuyes.join(' / ');
   cranTourne -= dt;
   majVisite(dt);
   // Mode assis (Sophie, 19/11) : si les yeux sont sous 1,40 m au départ (personne assise),
