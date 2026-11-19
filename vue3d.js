@@ -426,9 +426,13 @@ function porteVitree(m, o, angle, ux, uy) {
   pave(L, b, 0, h - b / 2); pave(L, b * 1.6, 0, b * 0.8);
   pave(b, h, -L / 2 + b / 2, h / 2); pave(b, h, L / 2 - b / 2, h / 2);
   const x0 = -L / 2 + b, x1 = L / 2 - b, y0 = b * 1.6, y1 = h - b;
-  pave(x1 - x0, y1 - y0, 0, (y0 + y1) / 2, matVitre, 0.01);
-  for (let k = 1; k < 3; k++) pave(f, y1 - y0, x0 + (x1 - x0) * k / 3, (y0 + y1) / 2, matMenuiserie, 0.03);
-  for (let k = 1; k < 5; k++) pave(x1 - x0, f, 0, y0 + (y1 - y0) * k / 5, matMenuiserie, 0.03);
+  // Verre dépoli (o.depoli) : un seul vitrage laiteux, sans petits bois, qui laisse passer la
+  // lumière sans laisser voir (porte de la buanderie, Sophie 19/11).
+  pave(x1 - x0, y1 - y0, 0, (y0 + y1) / 2, o.depoli ? (porteVitree.depoli ||= new THREE.MeshStandardMaterial({ color: '#eef1f2', roughness: 0.95, metalness: 0, transparent: true, opacity: 0.82 })) : matVitre, 0.01);
+  if (!o.depoli) {
+    for (let k = 1; k < 3; k++) pave(f, y1 - y0, x0 + (x1 - x0) * k / 3, (y0 + y1) / 2, matMenuiserie, 0.03);
+    for (let k = 1; k < 5; k++) pave(x1 - x0, f, 0, y0 + (y1 - y0) * k / 5, matMenuiserie, 0.03);
+  }
   pave(0.02, 0.12, L / 2 - b - 0.05, h * 0.47, new THREE.MeshStandardMaterial({ color: '#8f9296', metalness: 0.7, roughness: 0.3 }), 0.06);
   g.position.set(M(ax + ux * c), 0, -M(ay + uy * c));
   g.rotation.y = angle;
@@ -3296,8 +3300,8 @@ function erreurVR(err) {
 
 // ---------- Réalité virtuelle (casque SteamVR, via WebXR dans Chrome ou Edge) ----------
 // Bouton 🥽 VR : on entre dans la maison à taille réelle, au point de visite. Joystick gauche :
-// marcher (dans la direction du regard), joystick droit : tourner par crans de 30°, gâchette
-// latérale (grip) : basculer Avant / Après. Les murs et l'escalier se gèrent comme en visite.
+// marcher (dans la direction du regard), joystick droit : tourner par crans de 30°, clic du
+// joystick droit : basculer Avant / Après. Les murs et l'escalier se gèrent comme en visite.
 rendu.xr.enabled = true;
 rendu.xr.setReferenceSpaceType('local-floor');
 // Index : 2 écrans 1440 × 1600 à 90-144 Hz. Images allégées (70 % de la définition demandée par
@@ -3325,6 +3329,10 @@ function majVR(dt) {
     if (!a || a.length < 4) continue;
     const ax = Math.abs(a[2]) > 0.15 ? a[2] : 0, ay = Math.abs(a[3]) > 0.15 ? a[3] : 0;
     if (src.handedness === 'right') {
+      // Clic du joystick droit : bascule Avant / Après (sur front montant).
+      const clic = !!src.gamepad.buttons?.[3]?.pressed;
+      if (clic && !majVR.clic) document.querySelector(`[data-phase="${phase === 'apres' ? 'avant' : 'apres'}"]`)?.click();
+      majVR.clic = clic;
       // Tourner par crans (plus confortable qu'une rotation continue en casque).
       if (Math.abs(ax) > 0.6 && cranTourne <= 0) { lacetChariot -= Math.sign(ax) * Math.PI / 6; cranTourne = 0.35; }
     } else { marche.x = ax; marche.y = ay; }
@@ -3343,18 +3351,9 @@ function majVR(dt) {
   etatVR.yeux = camXR.position.y + (etatVR.assis || 0);
   return camXR;
 }
-// Grip : il faut le TENIR une seconde pour basculer Avant / Après (Yoann, 19/11 : en tenant
-// simplement les manettes de l'Index, le grip se serrait sans le vouloir et la maison changeait).
-for (const i of [0, 1]) {
-  const c = rendu.xr.getController(i);
-  c.addEventListener('squeezestart', () => {
-    clearTimeout(c.userData.basculer);
-    c.userData.basculer = setTimeout(() => {
-      document.querySelector(`[data-phase="${phase === 'apres' ? 'avant' : 'apres'}"]`)?.click();
-    }, 1000);
-  });
-  c.addEventListener('squeezeend', () => clearTimeout(c.userData.basculer));
-}
+// Avant / Après au casque : PLUS le grip (sur l'Index il se déclenche dès qu'on tient la
+// manette, Sophie basculait sans le vouloir, 19/11). On appuie sur le joystick droit (clic
+// du stick) pour basculer ; voir majVR.
 const boutonVR = document.createElement('button');
 boutonVR.id = 'vr';
 boutonVR.setAttribute('aria-pressed', 'false');
@@ -3378,6 +3377,8 @@ boutonVR.addEventListener('click', async () => {
   const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
   etatVR.etape = 'session obtenue'; majSuiviVR();
   if (mode !== 'visite') changerMode('visite');
+  // La visite au casque commence toujours dans la maison après travaux.
+  if (phase !== 'apres') document.querySelector('[data-phase="apres"]')?.click();
   lacetChariot = joueur.lacet; // on garde l'orientation de la visite
   // Chrome (157) gère les calques WebXR : three.js prend alors une « projection layer », et avec
   // SteamVR (Index) aucune image n'est jamais livrée (« la page ne répond pas » dans le casque).
