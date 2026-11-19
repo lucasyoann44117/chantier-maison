@@ -3443,7 +3443,7 @@ function erreurVR(err) {
 // ---------- Réalité virtuelle (casque SteamVR, via WebXR dans Chrome ou Edge) ----------
 // Bouton 🥽 VR : on entre dans la maison à taille réelle, au point de visite. Joystick gauche :
 // marcher (dans la direction du regard), clic du joystick gauche : assis / debout ; joystick
-// droit : tourner par crans de 30°, clic du joystick droit : basculer Avant / Après, bouton B
+// droit : tourner par crans de 30°, clic du joystick droit : basculer Avant / Après, bouton A/B
 // de la manette droite : plafond de la cuisine suivant. Les murs et l'escalier se gèrent comme en visite.
 rendu.xr.enabled = true;
 rendu.xr.setReferenceSpaceType('local-floor');
@@ -3480,9 +3480,10 @@ function majVR(dt) {
       const clic = !!src.gamepad.buttons?.[3]?.pressed;
       if (clic && !majVR.clic) document.querySelector(`[data-phase="${phase === 'apres' ? 'avant' : 'apres'}"]`)?.click();
       majVR.clic = clic;
-      // Bouton B (haut) de la manette droite : plafond de la cuisine suivant (Yoann, 19/11),
+      // Bouton A ou B de la manette droite : plafond de la cuisine suivant (Yoann, 19/11),
       // comme le sélecteur « 🎨 Plafond cuisine » de l'écran, qui suit le même choix.
-      const boutonB = !!src.gamepad.buttons?.[5]?.pressed;
+      // Sur l'Index, Chrome remonte A comme B sous le seul numéro 4 (relevé le 19/11) : A ou B.
+      const boutonB = !!(src.gamepad.buttons?.[4]?.pressed || src.gamepad.buttons?.[5]?.pressed);
       if (boutonB && !majVR.boutonB) {
         const c = choixPlafond(), sel = majSelecteurPlafond.el;
         if (c) {
