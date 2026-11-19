@@ -3280,7 +3280,7 @@ document.body.append(suiviVR);
 const etatVR = { images: 0, etape: '', erreur: '' };
 function majSuiviVR() {
   suiviVR.style.display = 'block';
-  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.yeux ? `\nyeux à ${etatVR.yeux.toFixed(2).replace('.', ',')} m du sol` : ''}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
+  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.yeux ? `\nyeux à ${etatVR.yeux.toFixed(2).replace('.', ',')} m du sol${etatVR.assis ? ' (mode assis : vue relevée)' : ''}` : ''}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
 }
 addEventListener('error', e => { etatVR.erreur = String(e.message || e.error); majSuiviVR(); });
 addEventListener('unhandledrejection', e => { etatVR.erreur = String(e.reason?.message || e.reason); majSuiviVR(); });
@@ -3331,11 +3331,16 @@ function majVR(dt) {
   }
   cranTourne -= dt;
   majVisite(dt);
-  chariot.position.set(joueur.x, joueur.alt, joueur.z);
+  // Mode assis (Sophie, 19/11) : si les yeux sont sous 1,40 m au départ (personne assise),
+  // la vue est remontée à 1,65 m, hauteur d'un adulte debout. Décidé une fois, 1 s après l'entrée.
+  if (etatVR.assis === undefined && etatVR.images > 60 && camXR.position.y > 0.3) {
+    etatVR.assis = camXR.position.y < 1.4 ? 1.65 - camXR.position.y : 0;
+  }
+  chariot.position.set(joueur.x, joueur.alt + (etatVR.assis || 0), joueur.z);
   chariot.rotation.y = lacetChariot;
   // Hauteur réelle des yeux au-dessus du sol de la maison (contrôle d'échelle : si elle dépasse
   // la vraie taille, le sol de SteamVR est mal calé et la maison paraît plus petite).
-  etatVR.yeux = camXR.position.y;
+  etatVR.yeux = camXR.position.y + (etatVR.assis || 0);
   return camXR;
 }
 // Grip : il faut le TENIR une seconde pour basculer Avant / Après (Yoann, 19/11 : en tenant
@@ -3364,7 +3369,7 @@ boutonVR.addEventListener('click', async () => {
     alert('Casque non détecté. Brancher le casque, lancer SteamVR, puis ouvrir la maquette dans Chrome ou Edge sur ce PC.');
     return;
   }
-  etatVR.etape = 'demande de session'; etatVR.images = 0; etatVR.erreur = ''; majSuiviVR();
+  etatVR.etape = 'demande de session'; etatVR.images = 0; etatVR.erreur = ''; etatVR.assis = undefined; majSuiviVR();
   // Chrome demande l'accès au casque dans une bulle près de la barre d'adresse : sans réponse,
   // la demande reste en attente sans erreur. On le dit à l'écran au bout de 3 s.
   setTimeout(() => {
