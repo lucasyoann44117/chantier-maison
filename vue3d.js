@@ -1922,6 +1922,46 @@ for (const m of murs) for (const o of m.ouvertures || []) {
   c.posVisite = c.pos.clone();
   c.posVisite.y = Math.min(H, M(o.haut)) - 0.07; // juste sous le linteau, dans le vide de l'ouverture
 }
+// Cotes des enceintes (Yoann, 23/11) : hauteur du centre au-dessus du sol (trait vertical) et
+// distance du centre à chaque bout du mur où elle est posée (à gauche / à droite), à hauteur de
+// l'enceinte. Enceintes encastrées (100 IW6) et Chorus sur pieds, à leur place « après ».
+function coterVertical(x, y, z0, z1, texte, phase, lieux) {
+  const pts = [[z0, 0], [z1, 0], [z0, -6], [z0, 6], [z1, -6], [z1, 6]].map(([z, d]) => new THREE.Vector3(M(x + d), z, -M(y)));
+  const ligne = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), matCote);
+  ligne.visible = false; scene.add(ligne);
+  const el = document.createElement('span');
+  el.className = 'cote'; el.textContent = texte; el.style.display = 'none';
+  conteneurEtiquettes.append(el);
+  cotes.push({ el, ligne, phase, lieux, pos: new THREE.Vector3(M(x), (z0 + z1) / 2, -M(y)) });
+}
+for (const o of objets) {
+  if (!/^(iw6-|focal-)/.test(o.id || '')) continue;
+  const [x, y] = (o.apres || `${o.x},${o.y}`).split(',').map(Number);
+  const encastree = o.modele === 'enceinteEncastree';
+  const centre = encastree ? (o.z || 0) + (o.h || 0) / 2 : 60 + 19.5; // Chorus : pied de 60 cm + demi-enceinte
+  const piece = pieces.find(p => (!p.phase || p.phase === 'apres') && dans(p.poly, x, y)) ||
+    pieces.find(p => (!p.phase || p.phase === 'apres') && p.poly.some((a, i) => { const b = p.poly[(i + 1) % p.poly.length]; const lg = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return Math.abs(((x - a[0]) * (b[1] - a[1]) - (y - a[1]) * (b[0] - a[0])) / lg) < 3; }));
+  if (!piece) continue;
+  // Hauteur : trait vertical décalé de 15 cm vers la pièce pour ne pas être caché par l'enceinte.
+  const a = ((o.angle || 0) * Math.PI) / 180, vx = Math.sin(a), vy = -Math.cos(a); // devant de l'enceinte, en plan
+  coterVertical(x + vx * 15, y + vy * 15, 0, M(centre), `↕ ${enMetres(centre)}`, 'apres', [piece]);
+  // Mur porteur : côté de la pièce le plus proche ; distances du centre à ses deux bouts.
+  let meilleur = null;
+  piece.poly.forEach((p0, i) => {
+    const p1 = piece.poly[(i + 1) % piece.poly.length], lg = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+    if (lg < 20) return;
+    const ux = (p1[0] - p0[0]) / lg, uy = (p1[1] - p0[1]) / lg, t = (x - p0[0]) * ux + (y - p0[1]) * uy, d = Math.abs((x - p0[0]) * uy - (y - p0[1]) * ux);
+    if (t < 0 || t > lg) return;
+    if (!meilleur || d < meilleur.d) meilleur = { p0, p1, ux, uy, t, lg, d };
+  });
+  if (!meilleur || meilleur.d > (encastree ? 8 : 60)) continue;
+  const { p0, ux, uy, t, lg } = meilleur, dec = [vx * 6, vy * 6];
+  const le = s => [p0[0] + ux * s + dec[0], p0[1] + uy * s + dec[1]];
+  // Seulement vers le coin le plus proche (l'autre traverserait le mur et croiserait les
+  // cotes de l'enceinte voisine) ; la longueur totale du mur est déjà cotée au sol.
+  if (t <= lg - t) coter(le(0), le(t), M(centre), `↔ ${enMetres(t)} du coin`, 'apres', 'cote', [piece]);
+  else coter(le(t), le(lg), M(centre), `↔ ${enMetres(lg - t)} du coin`, 'apres', 'cote', [piece]);
+}
 function reglerCotes() {
   for (const c of cotes) {
     c.ligne.visible = cotesVisibles && visible(c.phase) && niveauMontre(c.niveau);
