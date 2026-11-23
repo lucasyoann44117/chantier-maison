@@ -3499,6 +3499,12 @@ function majVR(dt) {
       const boutonB = !!(src.gamepad.buttons?.[4]?.pressed || src.gamepad.buttons?.[5]?.pressed);
       // Outil peinture en main : A/B annule le dernier coup de bombe (au lieu du plafond).
       if (boutonB && !majVR.boutonB && outilDroit === 'peinture') annulerPeinture();
+      // Outil son : A/B passe du test des voies à la musique (et relance si ça joue).
+      else if (boutonB && !majVR.boutonB && outilDroit === 'son') {
+        sonVR.mode = sonVR.mode === 'voies' ? 'musique' : 'voies';
+        afficherOutilJusqua = performance.now() + 1500;
+        if (sonVR.actif) lancerSon();
+      }
       // Outil électricité : A/B passe au type de point suivant.
       else if (boutonB && !majVR.boutonB && outilDroit === 'electricite') {
         typeVR = TYPES_VR[(TYPES_VR.indexOf(typeVR) + 1) % TYPES_VR.length];
@@ -3664,7 +3670,85 @@ const TEINTES_VR = [
   { nom: 'Vert olive', hex: '#7d8455' }, { nom: 'Bleu canard', hex: '#2f6670' },
   { nom: 'Anthracite', hex: '#4a4d50' }, { nom: 'Ocre', hex: '#c9a25a' },
 ];
-const OUTILS_DROITE = [{ id: 'main', nom: '✋ Main' }, { id: 'peinture', nom: '🎨 Peinture' }, { id: 'electricite', nom: '⚡ Électricité' }];
+const OUTILS_DROITE = [{ id: 'main', nom: '✋ Main' }, { id: 'peinture', nom: '🎨 Peinture' }, { id: 'electricite', nom: '⚡ Électricité' }, { id: 'son', nom: '🔊 Son' }];
+
+// ---------- VR, lot 6 (23/11) : son spatial des enceintes ----------
+// Outil 🔊 : gâchette = lancer / arrêter ; A/B = mode « test des voies » (bruit rose enceinte par
+// enceinte, comme le calibrage d'un ampli) ou « musique » (petit morceau synthétisé, libre de
+// droits). Chaque enceinte posée (Focal, arrières…) est une source placée à sa vraie position ;
+// le son change avec la position de la tête. Réverbération simple de pièce (indicative : ce n'est
+// pas une simulation acoustique des matériaux).
+const sonVR = { ctx: null, listener: null, mode: 'voies', actif: false, sources: [], minuterie: null };
+function preparerSon() { // appelé au clic sur 🥽 VR (geste utilisateur exigé pour l'audio)
+  if (sonVR.listener) { sonVR.listener.context.resume(); return; }
+  sonVR.listener = new THREE.AudioListener();
+  camXR.add(sonVR.listener);
+  sonVR.ctx = sonVR.listener.context;
+  // Réverbération : réponse impulsionnelle de bruit décroissant (~0,6 s, séjour meublé).
+  const d = sonVR.ctx.sampleRate * 0.6, ir = sonVR.ctx.createBuffer(2, d, sonVR.ctx.sampleRate);
+  for (let c = 0; c < 2; c++) { const x = ir.getChannelData(c); for (let i = 0; i < d; i++) x[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d, 3); }
+  sonVR.reverb = sonVR.ctx.createConvolver(); sonVR.reverb.buffer = ir;
+  const retour = sonVR.ctx.createGain(); retour.gain.value = 0.25;
+  sonVR.reverb.connect(retour); retour.connect(sonVR.listener.getInput());
+}
+function enceintesPosees() {
+  return meubles.filter(g => g.visible && !g.userData.places[phase]?.reserve && /enceinte|focal/i.test(g.userData.meuble.id + ' ' + g.userData.meuble.modele))
+    .map(g => { const b = new THREE.Box3().setFromObject(g), c = new THREE.Vector3(); b.getCenter(c); c.y = b.max.y - 0.1; return { g, c }; });
+}
+function bruitRose(ctx, duree) {
+  const n = ctx.sampleRate * duree, buf = ctx.createBuffer(1, n, ctx.sampleRate), x = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0;
+  for (let i = 0; i < n; i++) { const w = Math.random() * 2 - 1; b0 = 0.997 * b0 + w * 0.029; b1 = 0.985 * b1 + w * 0.032; b2 = 0.95 * b2 + w * 0.048; x[i] = (b0 + b1 + b2 + w * 0.02) * 0.5; }
+  return buf;
+}
+function arreterSon() {
+  clearTimeout(sonVR.minuterie);
+  for (const s of sonVR.sources) { try { s.audio.stop?.(); } catch {} try { s.osc?.forEach(o => o.stop()); } catch {} s.parent?.remove(s.audio); }
+  sonVR.sources = []; sonVR.actif = false;
+}
+function lancerSon() {
+  if (!sonVR.listener) return;
+  arreterSon();
+  const enc = enceintesPosees();
+  if (!enc.length) return;
+  sonVR.actif = true;
+  const source = (e, noeud) => {
+    const a = new THREE.PositionalAudio(sonVR.listener);
+    a.setRefDistance(1); a.setRolloffFactor(1.2); a.setDistanceModel('inverse');
+    a.position.copy(e.c); scene.add(a);
+    if (noeud) a.setNodeSource(noeud);
+    a.getOutput().connect(sonVR.reverb);
+    return a;
+  };
+  if (sonVR.mode === 'voies') {
+    // Bruit rose 1,5 s par enceinte, à tour de rôle, en boucle.
+    let k = 0;
+    const suivante = () => {
+      if (!sonVR.actif) return;
+      sonVR.sources.forEach(s => { try { s.audio.stop(); } catch {} scene.remove(s.audio); });
+      const e = enc[k++ % enc.length], a = source(e);
+      a.setBuffer(bruitRose(sonVR.ctx, 1.5)); a.setVolume(0.6); a.play();
+      sonVR.sources = [{ audio: a }];
+      sonVR.minuterie = setTimeout(suivante, 1800);
+    };
+    suivante();
+  } else {
+    // Petit morceau : accords doux (do, la mineur, fa, sol) sur toutes les enceintes.
+    const ctx = sonVR.ctx, t0 = ctx.currentTime, accords = [[261.6, 329.6, 392], [220, 261.6, 329.6], [174.6, 220, 261.6], [196, 246.9, 293.7]];
+    for (const e of enc) {
+      const g = ctx.createGain(); g.gain.value = 0;
+      const osc = [];
+      for (let v = 0; v < 3; v++) {
+        const o = ctx.createOscillator(); o.type = v === 0 ? 'triangle' : 'sine';
+        for (let i = 0; i < 64; i++) o.frequency.setValueAtTime(accords[i % 4][v] * (v === 0 ? 0.5 : 1), t0 + i * 1.6);
+        o.connect(g); o.start(); osc.push(o);
+      }
+      for (let i = 0; i < 64; i++) { g.gain.setValueAtTime(0.0001, t0 + i * 1.6); g.gain.exponentialRampToValueAtTime(0.18, t0 + i * 1.6 + 0.08); g.gain.exponentialRampToValueAtTime(0.03, t0 + i * 1.6 + 1.5); }
+      const a = source(e, g);
+      sonVR.sources.push({ audio: a, osc });
+    }
+  }
+}
 
 // ---------- VR, lot 3 (23/11) : électricité au casque et câblage automatique ----------
 // Outil ⚡ : on vise un mur, gâchette = pose du point choisi à l'endroit exact visé (hauteur
@@ -3769,6 +3853,8 @@ function majHolo() {
 holo.visible = false;
 rendu.xr.addEventListener('sessionstart', () => setTimeout(() => { try { construireHolo(); holo.visible = true; } catch (err) { erreurVR(err); } }, 500));
 rendu.xr.addEventListener('sessionend', () => { holo.visible = false; });
+// Contrôle du son sans casque : adresse avec « son » dans le # (outils de test dans la console).
+if (location.hash.includes('son')) window.testSon = { preparerSon, lancerSon, arreterSon, enceintesPosees, sonVR };
 // Aperçu à l'écran (contrôle sans casque) : adresse avec « holo » dans le #.
 if (location.hash.includes('holo')) setTimeout(() => { construireHolo(); holo.visible = true; }, 2000);
 // Appelé par la main droite (outil ✋) : renvoie vrai si l'hologramme est pris.
@@ -3869,7 +3955,15 @@ function majOutilsVR() {
       etiquetteOutil.visible = performance.now() < afficherOutilJusqua;
       if (etiquetteOutil.visible) {
         etiquetteOutil.position.setFromMatrixPosition(m.grip.matrixWorld).add(new THREE.Vector3(0, 0.12, 0));
-        etiquetteOutil.userData.ecrire(outilDroit === 'electricite' ? `⚡ ${TYPES_ELEC[typeVR].lib}`.slice(0, 20) : OUTILS_DROITE.find(o => o.id === outilDroit).nom);
+        etiquetteOutil.userData.ecrire(outilDroit === 'electricite' ? `⚡ ${TYPES_ELEC[typeVR].lib}`.slice(0, 20)
+          : outilDroit === 'son' ? (sonVR.mode === 'voies' ? '🔊 Test des voies' : '🔊 Musique') : OUTILS_DROITE.find(o => o.id === outilDroit).nom);
+      }
+      if (outilDroit === 'son') {
+        // --- Son spatial : gâchette = lancer / arrêter ---
+        m.ligne.visible = false;
+        if (appui && !m.appuiAvant) { if (sonVR.actif) arreterSon(); else lancerSon(); gp.hapticActuators?.[0]?.pulse?.(0.5, 50); }
+        m.appuiAvant = appui;
+        continue;
       }
       bombe.visible = nuancier.visible = outilDroit === 'peinture';
       if (majOutilsVR.cablage !== (outilDroit === 'electricite')) majCablage(majOutilsVR.cablage = outilDroit === 'electricite');
@@ -3993,7 +4087,8 @@ boutonVR.title = 'Visite au casque (SteamVR lancé, maquette ouverte dans Chrome
 document.getElementById('plafonds')?.after(boutonVR);
 boutonVR.addEventListener('click', async () => {
   const session = rendu.xr.getSession();
-  if (session) { await session.end(); return; }
+  if (session) { arreterSon(); await session.end(); return; }
+  try { preparerSon(); } catch (err) { console.warn('Son indisponible', err); } // geste utilisateur : l'audio est autorisé ici
   const ok = await navigator.xr?.isSessionSupported?.('immersive-vr').catch(() => false);
   if (!ok) {
     alert('Casque non détecté. Brancher le casque, lancer SteamVR, puis ouvrir la maquette dans Chrome ou Edge sur ce PC.');
