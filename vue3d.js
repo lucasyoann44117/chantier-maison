@@ -3741,6 +3741,7 @@ function viser(m, cibles) {
   rayVR.ray.origin.setFromMatrixPosition(m.ray.matrixWorld);
   rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
   rayVR.far = 30;
+  rayVR.camera = camXR; // les étiquettes (sprites) en ont besoin pour être testées (erreur du 23/11)
   for (const h of rayVR.intersectObjects(cibles, true)) {
     if (h.object.userData.outilVR || h.object.isSprite || h.object.isLine || !estVu(h.object) || h.object.material?.visible === false) continue;
     return h;
