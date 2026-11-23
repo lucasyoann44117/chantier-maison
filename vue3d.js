@@ -1440,6 +1440,14 @@ const MODELES = {
       lum(dx, dy, base + haut - 15, puissance);
     }
   } },
+  // Enceinte encastrée (23/11) : Focal 100 IW6, cadre blanc 19,5 × 29,8 cm et grille micro-
+  // perforée, posée à fleur du mur (verticale). Avant = +Z.
+  enceinteEncastree: { l: 19.5, p: 1.2, construire(g, o) {
+    const l = o.l || 19.5, h = o.h || 29.8;
+    piece3d(g, l, h, 1.2, 0, h / 2, 0, '#f2f1ec');
+    piece3d(g, l - 1.6, h - 1.6, 0.3, 0, h / 2, 0.7, '#dcdcd6');
+    for (let k = 1; k < 14; k++) piece3d(g, l - 2.4, 0.15, 0.1, 0, 0.8 + k * (h - 1.6) / 14, 0.9, '#c8c8c2');
+  } },
   // Enceinte compacte sur pied (18/11) : Focal Chorus 706 (39 × 22 × 26,3 cm, boomer 16,5 cm,
   // tweeter 25 mm en haut) sur pied Focal S 700 noir de 60 cm (socle, colonne, plateau). Avant = +Z.
   enceinteSurPied: { construire(g, o) {
