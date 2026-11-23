@@ -3475,7 +3475,9 @@ function boucle(t) {
   }
   if (rendu.xr.isPresenting) {
     // Une erreur en casque ne doit pas figer l'affichage : on la montre sur l'écran du PC.
+    const t0 = performance.now();
     try { cam = majVR(dt); } catch (err) { erreurVR(err); cam = camVisite; }
+    etatVR.msOutils = Math.round(performance.now() - t0);
     etatVR.images++;
   }
   try { rendu.render(scene, cam); } catch (err) { erreurVR(err); }
@@ -3487,7 +3489,7 @@ document.body.append(suiviVR);
 const etatVR = { images: 0, etape: '', erreur: '' };
 function majSuiviVR() {
   suiviVR.style.display = 'block';
-  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.yeux ? `\nyeux à ${etatVR.yeux.toFixed(2).replace('.', ',')} m du sol${etatVR.assis ? ' (mode assis : vue relevée)' : ''}` : ''}${etatVR.boutons ? `\ndernier bouton : ${etatVR.boutons}` : ''}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
+  suiviVR.textContent = `VR : ${etatVR.etape}\nimages envoyées : ${etatVR.images}${etatVR.yeux ? `\nyeux à ${etatVR.yeux.toFixed(2).replace('.', ',')} m du sol${etatVR.assis ? ' (mode assis : vue relevée)' : ''}` : ''}${etatVR.msOutils !== undefined ? `\ncalcul par image : ${etatVR.msOutils} ms${etatVR.holoMs ? ` (hologramme construit en ${etatVR.holoMs} ms)` : ''}` : ''}${etatVR.boutons ? `\ndernier bouton : ${etatVR.boutons}` : ''}${etatVR.erreur ? '\nERREUR : ' + etatVR.erreur : ''}`;
 }
 addEventListener('error', e => { etatVR.erreur = String(e.message || e.error); majSuiviVR(); });
 addEventListener('unhandledrejection', e => { etatVR.erreur = String(e.reason?.message || e.reason); majSuiviVR(); });
@@ -3512,7 +3514,7 @@ rendu.xr.setReferenceSpaceType('local-floor');
 // SteamVR, rendu fovéal) et sans ombres pendant la visite au casque, sinon le PC ne suit pas.
 // 23/11 : Index + RTX 3070 → pleine définition demandée par SteamVR (plus net) maintenant que
 // l'hologramme ne coûte plus rien.
-rendu.xr.setFramebufferScaleFactor(1.0);
+rendu.xr.setFramebufferScaleFactor(0.8);
 rendu.xr.setFoveation(1);
 // Ombres figées en casque (calculées une fois, plus à chaque image) : pas de recompilation des
 // matériaux comme en les coupant, qui bloquait Chrome au passage en VR.
@@ -3933,7 +3935,7 @@ majElec.cablage = actifEcran => majCablage(actifEcran || outilDroit === 'electri
 // descendant la main ; les deux gâchettes tenues = agrandir / réduire en écartant les mains.
 const HOLO = { x: 590, y: 480, z: 100 }; // cm, chambre de Marine (niveau 1), sur le tapis : la mezzanine était trop chargée (Yoann, 23/11)
 const holo = new THREE.Group(), holoMini = new THREE.Group(), coupeHolo = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
-const matHolo = new THREE.MeshBasicMaterial({ color: '#5ad1ff', transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, clippingPlanes: [coupeHolo] });
+const matHolo = new THREE.MeshBasicMaterial({ color: '#5ad1ff', transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide, clippingPlanes: [coupeHolo] });
 const matHoloMeuble = matHolo.clone(); matHoloMeuble.color.set('#ffd27a'); matHoloMeuble.opacity = 0.35; matHoloMeuble.clippingPlanes = [coupeHolo];
 rendu.localClippingEnabled = true;
 holo.position.set(M(HOLO.x), BASE_ETAGE + M(HOLO.z), -M(HOLO.y));
@@ -3965,9 +3967,21 @@ function construireHolo() {
     o.updateWorldMatrix(true, true);
     o.traverse(x => {
       if (!x.isMesh || !x.geometry?.attributes?.position || x.isSkinnedMesh) return;
-      const gg = new THREE.BufferGeometry();
-      gg.setAttribute('position', x.geometry.attributes.position.clone());
-      if (x.geometry.index) gg.setIndex(x.geometry.index.clone());
+      // Pièce détaillée (> 60 triangles : chaises, lampes, plantes…) : remplacée par sa boîte,
+      // 12 triangles ; l'hologramme passe de ~215 000 à quelques dizaines de milliers.
+      const nTri = (x.geometry.index ? x.geometry.index.count : x.geometry.attributes.position.count) / 3;
+      let gg;
+      if (nTri > 60) {
+        x.geometry.computeBoundingBox();
+        const bb = x.geometry.boundingBox, t = new THREE.Vector3(), c = new THREE.Vector3();
+        bb.getSize(t); bb.getCenter(c);
+        gg = new THREE.BoxGeometry(Math.max(t.x, 0.005), Math.max(t.y, 0.005), Math.max(t.z, 0.005)).translate(c.x, c.y, c.z);
+        gg.deleteAttribute('normal'); gg.deleteAttribute('uv');
+      } else {
+        gg = new THREE.BufferGeometry();
+        gg.setAttribute('position', x.geometry.attributes.position.clone());
+        if (x.geometry.index) gg.setIndex(x.geometry.index.clone());
+      }
       gg.applyMatrix4(x.matrixWorld);
       geos[cle].push(gg.index ? gg.toNonIndexed() : gg);
     });
@@ -3977,6 +3991,7 @@ function construireHolo() {
   for (const [cle, mat] of [['murs', matHolo], ['meubles', matHoloMeuble]]) {
     if (!geos[cle].length) continue;
     const fusion = fusionnerGeometries(geos[cle]);
+    etatHolo.triangles = (etatHolo.triangles || 0) + fusion.attributes.position.count / 3;
     contenu.add(new THREE.Mesh(fusion, mat));
   }
   // Centre la miniature sur le socle, posée dessus.
@@ -3995,7 +4010,9 @@ function majHolo() {
 }
 // Visible seulement au casque (à l'écran, la vue d'ensemble n'en a pas besoin).
 holo.visible = false;
-rendu.xr.addEventListener('sessionstart', () => setTimeout(() => { try { construireHolo(); holo.visible = true; } catch (err) { erreurVR(err); } }, 500));
+// Construit seulement quand on arrive à moins de 4 m (au démarrage, ça figeait Chrome et SteamVR
+// coupait la session) ; voir majOutilsVR.
+rendu.xr.addEventListener('sessionstart', () => { etatHolo.construit = false; });
 rendu.xr.addEventListener('sessionend', () => { holo.visible = false; });
 // Contrôle des outils VR sans casque : adresse avec « outils » dans le # (mains, aide, menu,
 // nuancier posés dans le séjour, vers x 700, y 600, à 1,30 m).
@@ -4009,12 +4026,12 @@ if (location.hash.includes('outils')) setTimeout(() => {
   menuOutils.position.copy(o).add(new THREE.Vector3(0, 0.25, 0)); menuOutils.visible = true;
   nuancierVR.position.copy(o).add(new THREE.Vector3(0, -0.15, -0.15)); nuancierVR.visible = true;
   titreNuancier.userData.ecrire(['Mur choisi : Séjour — choisis une couleur']);
-  window.testOutils = { mainVR, plierMain };
+  window.testOutils = { mainVR, plierMain, etatHolo };
 }, 2500);
 // Contrôle du son sans casque : adresse avec « son » dans le # (outils de test dans la console).
 if (location.hash.includes('son')) window.testSon = { preparerSon, lancerSon, arreterSon, enceintesPosees, sonVR };
 // Aperçu à l'écran (contrôle sans casque) : adresse avec « holo » dans le #.
-if (location.hash.includes('holo')) setTimeout(() => { construireHolo(); holo.visible = true; }, 2000);
+if (location.hash.includes('holo')) setTimeout(() => { const t0 = performance.now(); construireHolo(); holo.visible = true; window.testHolo = { ms: performance.now() - t0, etatHolo }; }, 2000);
 // Appelé par la main droite (outil ✋) : renvoie vrai si l'hologramme est pris.
 function manipulerHolo(m, appui, gp, autre) {
   // Visée : sphère autour de l'hologramme + socle (tester les milliers de pièces de la
@@ -4236,6 +4253,11 @@ function meubleSousLaMain(vMainPos) {
 const lacetMain = m => { const q = new THREE.Quaternion(); m.grip.getWorldQuaternion(q); return new THREE.Euler().setFromQuaternion(q, 'YXZ').y; };
 function majOutilsVR() {
   if (!majOutilsVR.aide) { majOutilsVR.aide = true; majAideVR(); }
+  if (!etatHolo.construit) {
+    camXR.getWorldPosition(vTete);
+    const c = new THREE.Vector3(); holo.getWorldPosition(c);
+    if (vTete.distanceTo(c) < 4) { etatHolo.construit = true; const t0 = performance.now(); try { construireHolo(); holo.visible = true; } catch (err) { erreurVR(err); } etatVR.holoMs = Math.round(performance.now() - t0); }
+  }
   for (const m of manettesVR) {
     const src = m.src, gp = src?.gamepad;
     if (!src || !gp) continue;
