@@ -3547,15 +3547,16 @@ function majVR(dt) {
       const boutonB = !!(src.gamepad.buttons?.[4]?.pressed || src.gamepad.buttons?.[5]?.pressed);
       // Outil peinture en main : A/B annule le dernier coup de bombe (au lieu du plafond).
       if (boutonB && !majVR.boutonB && outilDroit === 'peinture') annulerPeinture();
+      else if (boutonB && !majVR.boutonB && outilDroit === 'metre') { remettreMetre(); mesureVR.txt = ''; majAideVR(); }
       // Outil son : A/B passe du test des voies à la musique (et relance si ça joue).
       else if (boutonB && !majVR.boutonB && outilDroit === 'son') {
-        sonVR.mode = sonVR.mode === 'voies' ? 'musique' : 'voies';
+        sonVR.mode = sonVR.mode === 'voies' ? 'musique' : 'voies'; majAideVR();
         afficherOutilJusqua = performance.now() + 1500;
         if (sonVR.actif) lancerSon();
       }
       // Outil électricité : A/B passe au type de point suivant.
       else if (boutonB && !majVR.boutonB && outilDroit === 'electricite') {
-        typeVR = TYPES_VR[(TYPES_VR.indexOf(typeVR) + 1) % TYPES_VR.length];
+        typeVR = TYPES_VR[(TYPES_VR.indexOf(typeVR) + 1) % TYPES_VR.length]; majAideVR();
         afficherOutilJusqua = performance.now() + 1500;
       }
       else if (boutonB && !majVR.boutonB) {
@@ -3611,83 +3612,117 @@ function majVR(dt) {
   return camXR;
 }
 
-// ---------- VR, lot 1 (23/11) : mains, rayon, prise des meubles, télémètre laser ----------
-// Main droite : rayon blanc ; gâchette sur un meuble = on l'attrape, il suit le rayon au sol,
-// joystick droit = pivoter de 15°, on relâche = posé et enregistré (comme à l'écran).
-// Main gauche : gâchette = télémètre laser (point rouge + distance en direct) ; bouton A/B =
-// mesure entre deux points (1er appui point A, 2e point B, 3e on efface).
+// ---------- VR (refonte du 23/11 au soir, retours de Yoann) : vraies mains, sac à dos, aide ----------
+// Mains : modèles WebXR « generic-hand » (licence MIT), squelette complet ; les doigts se ferment
+// avec la gâchette (index) et la poignée (autres doigts). Toutes les commandes sont sur la main
+// droite ; la main gauche porte un panneau d'aide (outil en cours + que fait chaque bouton).
+// Sac à dos : main droite au-dessus de l'épaule droite + gâchette = le menu des outils s'ouvre
+// devant soi ; on vise une tuile, gâchette = on prend l'outil.
 let saisieVR = null;
 const outilsVR = new THREE.Group();
 chariot.add(outilsVR);
-const matPeau = new THREE.MeshStandardMaterial({ color: '#d9a98c', roughness: 0.75 });
+const matPeau = new THREE.MeshStandardMaterial({ color: '#e0ac8f', roughness: 0.62, metalness: 0 });
 const marquerOutil = o => { o.traverse(x => { x.userData.outilVR = true; }); return o; };
-// Main stylisée (paume, 4 doigts, pouce) dans l'espace « grip » de la manette ; les doigts se
-// plient avec la gâchette (index) et la poignée (autres doigts).
+const chargeurMains = new GLTFLoader();
+const URL_MAINS = 'https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/';
+const DOIGTS = ['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'], PHALANGES = ['phalanx-proximal', 'phalanx-intermediate', 'phalanx-distal'];
+// Pose dans l'espace « grip » de la manette : doigts vers l'avant (-Z), paume tournée vers le
+// manche (-X pour la droite, +X pour la gauche), poignet un peu en arrière du manche.
 function mainVR(droite) {
-  const g = new THREE.Group(), s = droite ? 1 : -1;
-  const paume = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.085, 0.095), matPeau);
-  paume.position.set(s * 0.01, 0.0, 0.03); g.add(paume);
-  const doigts = [];
-  for (let k = 0; k < 4; k++) {
-    const pivot = new THREE.Group();
-    pivot.position.set(s * 0.01, 0.033 - k * 0.022, -0.018);
-    const d = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.017, 0.075), matPeau);
-    d.position.z = -0.036; pivot.add(d); g.add(pivot); doigts.push(pivot);
-  }
-  const pouce = new THREE.Group();
-  pouce.position.set(-s * 0.012, 0.04, 0.03); pouce.rotation.y = -s * 0.6;
-  const p = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.06), matPeau);
-  p.position.z = -0.03; pouce.add(p); g.add(pouce);
-  g.userData.doigts = doigts;
+  const g = new THREE.Group();
+  g.userData.os = {};
+  chargeurMains.load(URL_MAINS + (droite ? 'right' : 'left') + '.glb', gl => {
+    const h = gl.scene;
+    h.traverse(o => {
+      if (o.isMesh) { o.material = matPeau; o.frustumCulled = false; o.castShadow = false; }
+      if (o.isBone) { g.userData.os[o.name] = o; o.userData.repos = o.quaternion.clone(); }
+    });
+    h.rotation.set(0, 0, droite ? -Math.PI / 2 : Math.PI / 2);
+    h.position.set(droite ? 0.025 : -0.025, -0.01, 0.075);
+    g.add(marquerOutil(h));
+  }, undefined, err => erreurVR(err));
   return marquerOutil(g);
 }
-// Étiquette texte toujours face au regard (sprite), pour les distances.
-function etiquetteVR() {
-  const c = document.createElement('canvas'); c.width = 256; c.height = 72;
+const qFlex = new THREE.Quaternion(), axeX = new THREE.Vector3(1, 0, 0);
+function plierMain(main, gachette, poigne) {
+  const os = main?.userData.os;
+  if (!os) return;
+  DOIGTS.forEach((d, k) => {
+    // Repos : main posée autour du manche ; l'index suit la gâchette, les autres la poignée.
+    const f = k === 0 ? 0.25 + gachette * 0.75 : 0.45 + poigne * 0.55;
+    PHALANGES.forEach((p, i) => {
+      const b = os[`${d}-${p}`];
+      if (b?.userData.repos) b.quaternion.copy(b.userData.repos).multiply(qFlex.setFromAxisAngle(axeX, -f * (i === 0 ? 1.0 : 0.9)));
+    });
+  });
+  for (const [p, a] of [['thumb-phalanx-proximal', 0.35], ['thumb-phalanx-distal', 0.45]]) {
+    const b = os[p];
+    if (b?.userData.repos) b.quaternion.copy(b.userData.repos).multiply(qFlex.setFromAxisAngle(axeX, -a * (0.5 + poigne * 0.5)));
+  }
+}
+// Panneau de texte (plan, toujours lisible) : lignes, la première en gros.
+function panneauVR(l, h, px = 512) {
+  const c = document.createElement('canvas'); c.width = px; c.height = Math.round(px * h / l);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(l, h), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthTest: false }));
+  m.renderOrder = 20;
+  m.userData.ecrire = (lignes, { fond = 'rgba(18,22,27,0.88)', couleur = '#ffffff', titre = '#ffd84a' } = {}) => {
+    const cle = JSON.stringify([lignes, fond]);
+    if (m.userData.cle === cle) return;
+    m.userData.cle = cle;
+    const x = c.getContext('2d'), W = c.width, H = c.height;
+    x.clearRect(0, 0, W, H);
+    x.fillStyle = fond; x.beginPath(); x.roundRect(4, 4, W - 8, H - 8, Math.min(W, H) * 0.08); x.fill();
+    const n = lignes.length, haut = H / (n + 0.6);
+    lignes.forEach((ligne, i) => {
+      x.fillStyle = i === 0 ? titre : couleur;
+      x.font = `${i === 0 ? 'bold ' : ''}${Math.round(haut * (i === 0 ? 0.62 : 0.5))}px system-ui`;
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText(ligne, W / 2, haut * (i + 0.8), W - 24);
+    });
+    t.needsUpdate = true;
+  };
+  return m;
+}
+// Étiquette (sprite) toujours face au regard, pour les mesures.
+function etiquetteVR(l = 0.22, h = 0.065) {
+  const c = document.createElement('canvas'); c.width = 384; c.height = Math.round(384 * h / l);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
-  s.scale.set(0.16, 0.045, 1); s.renderOrder = 10;
+  s.scale.set(l, h, 1); s.renderOrder = 21;
   s.userData.ecrire = txt => {
     if (s.userData.txt === txt) return;
     s.userData.txt = txt;
     const x = c.getContext('2d');
-    x.clearRect(0, 0, 256, 72);
-    x.fillStyle = 'rgba(20,24,28,0.85)'; x.beginPath(); x.roundRect(4, 4, 248, 64, 18); x.fill();
-    x.fillStyle = '#ffd84a'; x.font = 'bold 40px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(txt, 128, 38);
+    x.clearRect(0, 0, c.width, c.height);
+    x.fillStyle = 'rgba(18,22,27,0.9)'; x.beginPath(); x.roundRect(4, 4, c.width - 8, c.height - 8, 22); x.fill();
+    x.fillStyle = '#ffd84a'; x.font = `bold ${Math.round(c.height * 0.55)}px system-ui`; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(txt, c.width / 2, c.height / 2 + 2);
     t.needsUpdate = true;
   };
   return marquerOutil(s);
 }
-const cm = v => `${(v * 100).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} cm`;
-const mesureTxt = d => (d >= 1 ? `${d.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m` : cm(d));
+const enCm = d => `${Math.round(d * 100).toLocaleString('fr-FR')} cm`;
 // Une manette : rayon (espace « target ray »), main (espace « grip »).
 const manettesVR = [0, 1].map(i => {
   const ray = rendu.xr.getController(i), grip = rendu.xr.getControllerGrip(i);
   outilsVR.add(ray, grip);
   const ligne = marquerOutil(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
-    new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6 })));
+    new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.7 })));
   ligne.visible = false; ray.add(ligne);
-  const m = { ray, grip, ligne, main: null, src: null };
+  const bout = marquerOutil(new THREE.Mesh(new THREE.SphereGeometry(0.012, 16, 12), new THREE.MeshBasicMaterial({ color: '#ffffff', depthTest: false })));
+  bout.visible = false; scene.add(bout);
+  const m = { ray, grip, ligne, bout, main: null, src: null };
   ray.addEventListener('connected', e => {
     m.src = e.data;
     if (m.main) grip.remove(m.main);
     m.main = mainVR(e.data.handedness === 'right');
     grip.add(m.main);
-    // Lot 2 : nuancier au poignet gauche, bombe dans la main droite.
-    grip.add(e.data.handedness === 'right' ? bombe : nuancier);
+    if (e.data.handedness === 'left') grip.add(aideVR);
   });
   ray.addEventListener('disconnected', () => { m.src = null; });
   return m;
 });
-const pointVR = marquerOutil(new THREE.Mesh(new THREE.SphereGeometry(0.012, 16, 12), new THREE.MeshBasicMaterial({ color: '#ff2a2a' })));
-pointVR.visible = false; scene.add(pointVR);
-const etiquetteLaser = etiquetteVR(); etiquetteLaser.visible = false; scene.add(etiquetteLaser);
-const mesureAB = { a: null, b: null, appui: false,
-  billes: [0, 1].map(() => { const b = marquerOutil(new THREE.Mesh(new THREE.SphereGeometry(0.015, 16, 12), new THREE.MeshBasicMaterial({ color: '#ffd84a' }))); b.visible = false; scene.add(b); return b; }),
-  trait: marquerOutil(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: '#ffd84a', depthTest: false }))),
-  etiquette: etiquetteVR() };
-mesureAB.trait.visible = mesureAB.etiquette.visible = false; scene.add(mesureAB.trait, mesureAB.etiquette);
 const rayVR = new THREE.Raycaster(), matRay = new THREE.Matrix4();
 const estVu = o => { for (let x = o; x; x = x.parent) if (!x.visible) return false; return true; };
 function viser(m, cibles) {
@@ -3696,13 +3731,25 @@ function viser(m, cibles) {
   rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
   rayVR.far = 30;
   for (const h of rayVR.intersectObjects(cibles, true)) {
-    if (h.object.userData.outilVR || !estVu(h.object) || h.object.material?.visible === false) continue;
+    if (h.object.userData.outilVR || h.object.isSprite || h.object.isLine || !estVu(h.object) || h.object.material?.visible === false) continue;
     return h;
   }
   return null;
 }
+// Rayon : longueur jusqu'au point visé, petite bille au bout.
+function montrerRayon(m, h, couleur = '#ffffff') {
+  m.ligne.visible = true;
+  m.ligne.material.color.set(couleur);
+  m.ligne.scale.z = h ? h.distance : 4;
+  m.bout.visible = !!h;
+  if (h) { m.bout.position.copy(h.point); m.bout.material.color.set(couleur); }
+}
 const meubleDe = o => { while (o && !meubles.includes(o)) o = o.parent; return o; };
 const vTete = new THREE.Vector3(), vRegard = new THREE.Vector3(), vMain = new THREE.Vector3();
+// Panneau d'aide au-dessus du poignet gauche (tourné vers soi quand on lève la main).
+const aideVR = panneauVR(0.17, 0.11);
+aideVR.position.set(0, 0.075, 0.04); aideVR.rotation.x = -0.9;
+marquerOutil(aideVR);
 
 // ---------- VR, lot 2 (23/11) : bombe de peinture et nuancier ----------
 // Outils de la main droite (joystick droit haut / bas) : main (attraper) ou bombe de peinture.
@@ -3718,7 +3765,7 @@ const TEINTES_VR = [
   { nom: 'Vert olive', hex: '#7d8455' }, { nom: 'Bleu canard', hex: '#2f6670' },
   { nom: 'Anthracite', hex: '#4a4d50' }, { nom: 'Ocre', hex: '#c9a25a' },
 ];
-const OUTILS_DROITE = [{ id: 'main', nom: '✋ Main' }, { id: 'peinture', nom: '🎨 Peinture' }, { id: 'electricite', nom: '⚡ Électricité' }, { id: 'son', nom: '🔊 Son' }];
+const OUTILS_DROITE = [{ id: 'main', nom: '✋ Main' }, { id: 'metre', nom: '📏 Mètre' }, { id: 'peinture', nom: '🎨 Peinture' }, { id: 'electricite', nom: '⚡ Électricité' }, { id: 'son', nom: '🔊 Son' }];
 
 // ---------- VR, lot 6 (23/11) : son spatial des enceintes ----------
 // Outil 🔊 : gâchette = lancer / arrêter ; A/B = mode « test des voies » (bruit rose enceinte par
@@ -3858,19 +3905,19 @@ majElec.cablage = actifEcran => majCablage(actifEcran || outilDroit === 'electri
 // rez-de-chaussée en miniature au 1/60, en hologramme bleu, sans plafonds. Main droite (outil ✋) :
 // gâchette tenue sur l'hologramme = tourner en tournant la main, découper en tranches en montant /
 // descendant la main ; les deux gâchettes tenues = agrandir / réduire en écartant les mains.
-const HOLO = { x: 790, y: 500, z: 105 }; // cm, sur la mezzanine (niveau 1)
+const HOLO = { x: 590, y: 480, z: 100 }; // cm, chambre de Marine (niveau 1), sur le tapis : la mezzanine était trop chargée (Yoann, 23/11)
 const holo = new THREE.Group(), holoMini = new THREE.Group(), coupeHolo = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
 const matHolo = new THREE.MeshBasicMaterial({ color: '#5ad1ff', transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, clippingPlanes: [coupeHolo] });
 const matHoloMeuble = matHolo.clone(); matHoloMeuble.color.set('#ffd27a'); matHoloMeuble.opacity = 0.35; matHoloMeuble.clippingPlanes = [coupeHolo];
 rendu.localClippingEnabled = true;
 holo.position.set(M(HOLO.x), BASE_ETAGE + M(HOLO.z), -M(HOLO.y));
 scene.add(holo);
-const socleHolo = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, M(HOLO.z) - 0.02, 40), new THREE.MeshStandardMaterial({ color: '#1d2329', roughness: 0.4, metalness: 0.5 }));
+const socleHolo = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, M(HOLO.z) - 0.02, 48), new THREE.MeshStandardMaterial({ color: '#1d2329', roughness: 0.4, metalness: 0.5 }));
 socleHolo.position.y = -(M(HOLO.z) - 0.02) / 2 - 0.02; holo.add(socleHolo);
-const disqueHolo = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.01, 40), new THREE.MeshBasicMaterial({ color: '#5ad1ff', transparent: true, opacity: 0.55 }));
+const disqueHolo = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.01, 48), new THREE.MeshBasicMaterial({ color: '#5ad1ff', transparent: true, opacity: 0.55 }));
 disqueHolo.position.y = -0.015; holo.add(disqueHolo);
 holo.add(holoMini);
-const etatHolo = { echelle: 1 / 60, tranche: 1, prise: null, deux: null }; // 1/60 : tient sur le socle
+const etatHolo = { echelle: 1 / 35, tranche: 1, prise: null, deux: null }; // 1/35 : plus grand (Yoann, 23/11)
 function construireHolo() {
   holoMini.clear();
   const contenu = new THREE.Group(), b = new THREE.Box3(), c = new THREE.Vector3();
@@ -3901,6 +3948,20 @@ function majHolo() {
 holo.visible = false;
 rendu.xr.addEventListener('sessionstart', () => setTimeout(() => { try { construireHolo(); holo.visible = true; } catch (err) { erreurVR(err); } }, 500));
 rendu.xr.addEventListener('sessionend', () => { holo.visible = false; });
+// Contrôle des outils VR sans casque : adresse avec « outils » dans le # (mains, aide, menu,
+// nuancier posés dans le séjour, vers x 700, y 600, à 1,30 m).
+if (location.hash.includes('outils')) setTimeout(() => {
+  const o = new THREE.Vector3(M(700), 1.3, -M(600));
+  [true, false].forEach((d, k) => {
+    const mn = mainVR(d); mn.position.copy(o).add(new THREE.Vector3(d ? 0.15 : -0.15, -0.15, 0.25)); scene.add(mn);
+    setTimeout(() => plierMain(mn, k ? 0 : 1, 0.5), 2500);
+    if (!d) { aideVR.position.set(0, 0.075, 0.04); mn.add(aideVR); outilDroit = 'peinture'; majAideVR(); }
+  });
+  menuOutils.position.copy(o).add(new THREE.Vector3(0, 0.25, 0)); menuOutils.visible = true;
+  nuancierVR.position.copy(o).add(new THREE.Vector3(0, -0.15, -0.15)); nuancierVR.visible = true;
+  titreNuancier.userData.ecrire(['Mur choisi : Séjour — choisis une couleur']);
+  window.testOutils = { mainVR, plierMain };
+}, 2500);
 // Contrôle du son sans casque : adresse avec « son » dans le # (outils de test dans la console).
 if (location.hash.includes('son')) window.testSon = { preparerSon, lancerSon, arreterSon, enceintesPosees, sonVR };
 // Aperçu à l'écran (contrôle sans casque) : adresse avec « holo » dans le #.
@@ -3932,35 +3993,137 @@ function manipulerHolo(m, appui, gp, autre) {
   majHolo();
   return true;
 }
-let outilDroit = 'main', teinteVR = TEINTES_VR[0], afficherOutilJusqua = 0;
-const etiquetteOutil = etiquetteVR(); etiquetteOutil.visible = false; scene.add(etiquetteOutil);
-function changerOutilDroit(sens) {
+let outilDroit = 'main', afficherOutilJusqua = 0;
+// Ce que fait chaque bouton, affiché sur le panneau d'aide du poignet gauche.
+const AIDE_OUTILS = {
+  main: ['✋ Main', 'Gâchette sur un meuble : l\'attraper', 'Joystick ← → en le tenant : tourner', 'A/B : plafond de la cuisine suivant'],
+  metre: ['📏 Mètre', 'Gâchette : point 1, puis point 2', 'La distance s\'affiche en cm', '3e gâchette ou A/B : recommencer'],
+  peinture: ['🎨 Peinture', 'Gâchette sur un mur : le choisir', 'Gâchette sur une couleur : appliquer', 'A/B : annuler'],
+  electricite: ['⚡ Électricité', 'Gâchette sur un mur : poser le point', 'Gâchette sur un point bleu : l\'effacer', 'A/B : type suivant'],
+  son: ['🔊 Son', 'Gâchette : lancer / arrêter', 'A/B : test des voies ↔ musique', ''],
+};
+function majAideVR() {
+  const l = [...AIDE_OUTILS[outilDroit]];
+  if (outilDroit === 'electricite') l[0] = `⚡ ${TYPES_ELEC[typeVR].lib}`;
+  if (outilDroit === 'son') l[0] = sonVR.mode === 'voies' ? '🔊 Test des voies' : '🔊 Musique';
+  if (outilDroit === 'metre' && mesureVR.txt) l[3] = `Dernière mesure : ${mesureVR.txt}`;
+  l.push('🎒 Main droite sur l\'épaule + gâchette : outils');
+  aideVR.userData.ecrire(l.filter(Boolean));
+}
+function changerOutilDroit(sens, id) {
   const i = OUTILS_DROITE.findIndex(o => o.id === outilDroit);
-  outilDroit = OUTILS_DROITE[(i + sens + OUTILS_DROITE.length) % OUTILS_DROITE.length].id;
+  outilDroit = id || OUTILS_DROITE[(i + sens + OUTILS_DROITE.length) % OUTILS_DROITE.length].id;
   afficherOutilJusqua = performance.now() + 1500;
   if (outilDroit !== 'main') { saisieVR = null; cadre.visible = false; }
+  if (outilDroit !== 'peinture') choisirMurVR(null);
+  if (outilDroit !== 'metre') remettreMetre();
+  majAideVR();
 }
-// Nuancier : planchette 4 × 3 pastilles, accrochée au poignet gauche.
-const nuancier = new THREE.Group();
-nuancier.add(new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.004, 0.1), new THREE.MeshStandardMaterial({ color: '#2a2d31', roughness: 0.6 })));
-TEINTES_VR.forEach((t, k) => {
-  const p = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.006, 0.026), new THREE.MeshStandardMaterial({ color: t.hex, roughness: 0.8 }));
-  p.position.set(-0.045 + (k % 4) * 0.03, 0.003, -0.03 + Math.floor(k / 4) * 0.03);
-  p.userData.teinte = t;
-  nuancier.add(p);
+
+// --- Sac à dos : menu des outils, grandes tuiles devant soi ---
+const menuOutils = new THREE.Group();
+menuOutils.visible = false;
+scene.add(menuOutils);
+OUTILS_DROITE.forEach((o, k) => {
+  const t = panneauVR(0.16, 0.11, 384);
+  t.userData.ecrire([o.nom.split(' ')[0], o.nom.split(' ').slice(1).join(' ')], { fond: 'rgba(28,40,52,0.95)', titre: '#ffffff', couleur: '#ffd84a' });
+  t.material.depthTest = true;
+  t.position.set((k - (OUTILS_DROITE.length - 1) / 2) * 0.18, 0, 0);
+  t.userData.ui = { outil: o.id };
+  menuOutils.add(t);
 });
-nuancier.position.set(0, 0.03, 0.06); nuancier.rotation.x = -0.5;
-nuancier.visible = false;
-// Bombe dans la main droite, à la couleur choisie.
-const bombe = marquerOutil(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.11, 16), new THREE.MeshStandardMaterial({ color: teinteVR.hex, roughness: 0.4, metalness: 0.3 })));
-bombe.rotation.x = Math.PI / 2; bombe.position.set(0, 0.03, -0.02); bombe.visible = false;
+function ouvrirMenuOutils() {
+  camXR.getWorldPosition(vTete); camXR.getWorldDirection(vRegard);
+  vRegard.y = 0; vRegard.normalize();
+  menuOutils.position.copy(vTete).addScaledVector(vRegard, 0.55); menuOutils.position.y -= 0.15;
+  menuOutils.lookAt(vTete.x, menuOutils.position.y, vTete.z);
+  menuOutils.visible = true;
+}
+
+// --- Mètre : deux points au laser, distance en cm ---
+const mesureVR = { a: null, b: null, txt: '',
+  billes: [0, 1].map(() => { const b = marquerOutil(new THREE.Mesh(new THREE.SphereGeometry(0.018, 16, 12), new THREE.MeshBasicMaterial({ color: '#ffd84a', depthTest: false }))); b.visible = false; scene.add(b); return b; }),
+  trait: marquerOutil(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: '#ffd84a', depthTest: false }))),
+  etiquette: etiquetteVR(0.3, 0.09) };
+mesureVR.trait.visible = mesureVR.etiquette.visible = false;
+scene.add(mesureVR.trait, mesureVR.etiquette);
+function remettreMetre() { mesureVR.a = mesureVR.b = null; mesureVR.billes.forEach(b => { b.visible = false; }); mesureVR.trait.visible = mesureVR.etiquette.visible = false; }
+function majMetre(bPoint) {
+  const a = mesureVR.a, b = mesureVR.b || bPoint;
+  mesureVR.billes[0].visible = !!a; if (a) mesureVR.billes[0].position.copy(a);
+  mesureVR.billes[1].visible = !!b && !!a; if (a && b) mesureVR.billes[1].position.copy(b);
+  const deux = !!(a && b);
+  mesureVR.trait.visible = mesureVR.etiquette.visible = deux;
+  if (!deux) return;
+  mesureVR.trait.geometry.setFromPoints([a, b]);
+  mesureVR.etiquette.position.copy(a).add(b).multiplyScalar(0.5).add(new THREE.Vector3(0, 0.08, 0));
+  const txt = enCm(a.distanceTo(b));
+  mesureVR.etiquette.userData.ecrire(txt);
+  if (mesureVR.b) { mesureVR.txt = txt; majAideVR(); }
+}
+
+// --- Peinture : choisir un mur, puis une couleur sur le nuancier qui s'ouvre devant soi ---
+let murVR = null; // clé mur|pièce|phase|côté du pan choisi
+const surbrillances = new Map(); // clé → groupe de calques jaunes
+function surbrillance(cle) {
+  if (!surbrillances.has(cle)) {
+    const g = new THREE.Group(), mat = new THREE.MeshBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+    for (const c of couchesVR) if (c.userData.peinture.cle === cle) {
+      const k = new THREE.Mesh(c.geometry, mat);
+      k.position.copy(c.position); k.quaternion.copy(c.quaternion);
+      k.translateZ(0.002);
+      g.add(k);
+    }
+    g.visible = false; scene.add(marquerOutil(g)); surbrillances.set(cle, g);
+  }
+  return surbrillances.get(cle);
+}
+let survolVR = null;
+function survolerMurVR(cle) {
+  if (survolVR && survolVR !== murVR) surbrillance(survolVR).visible = false;
+  survolVR = cle;
+  if (cle) { const g = surbrillance(cle); g.visible = true; g.children[0] && (g.children[0].material.opacity = cle === murVR ? 0.35 : 0.18); }
+}
+const nuancierVR = new THREE.Group();
+nuancierVR.visible = false; scene.add(nuancierVR);
+const titreNuancier = panneauVR(0.5, 0.06, 640);
+titreNuancier.position.set(0, 0.17, 0); titreNuancier.material.depthTest = true; nuancierVR.add(titreNuancier);
+TEINTES_VR.forEach((t, k) => {
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.075), new THREE.MeshBasicMaterial({ color: t.hex }));
+  p.position.set(-0.21 + (k % 6) * 0.084, 0.085 - Math.floor(k / 6) * 0.09, 0);
+  p.userData.ui = { teinte: t };
+  nuancierVR.add(p);
+});
+for (const [k, [lib, action]] of [['↶ Annuler', 'annuler'], ['⟲ Couleur d\'origine', 'origine']].entries()) {
+  const b = panneauVR(0.24, 0.06, 512);
+  b.userData.ecrire([lib], { fond: 'rgba(60,66,74,0.95)', titre: '#ffffff' });
+  b.material.depthTest = true;
+  b.position.set(-0.125 + k * 0.25, -0.11, 0);
+  b.userData.ui = { action };
+  nuancierVR.add(b);
+}
+function choisirMurVR(cle) {
+  if (murVR) surbrillance(murVR).visible = false;
+  murVR = cle;
+  nuancierVR.visible = !!cle;
+  if (!cle) return;
+  const g = surbrillance(cle); g.visible = true; if (g.children[0]) g.children[0].material.opacity = 0.35;
+  const [mur, piece] = cle.split('|');
+  titreNuancier.userData.ecrire([`Mur choisi : ${piece} — choisis une couleur`]);
+  camXR.getWorldPosition(vTete); camXR.getWorldDirection(vRegard);
+  vRegard.y = 0; vRegard.normalize();
+  nuancierVR.position.copy(vTete).addScaledVector(vRegard, 0.6); nuancierVR.position.y -= 0.2;
+  nuancierVR.lookAt(vTete.x, nuancierVR.position.y, vTete.z);
+  void mur;
+}
 const historiquePeinture = [];
 let minuteriePeinture = null;
-function peindreFace(cle, hex) {
-  const avant = peinturesVR[cle] || couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
+const couleurDe = cle => peinturesVR[cle] || couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
+function peindreFace(cle, hex, sansHistorique) {
+  const avant = couleurDe(cle), origine = couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
   if (avant === hex) return;
-  historiquePeinture.push({ cle, avant });
-  peinturesVR[cle] = hex;
+  if (!sansHistorique) historiquePeinture.push({ cle, avant });
+  if (hex === origine) delete peinturesVR[cle]; else peinturesVR[cle] = hex;
   for (const c of couchesVR) if (c.userData.peinture.cle === cle) c.material = materiauPeinture(hex);
   clearTimeout(minuteriePeinture);
   minuteriePeinture = setTimeout(async () => {
@@ -3970,157 +4133,119 @@ function peindreFace(cle, hex) {
 }
 function annulerPeinture() {
   const h = historiquePeinture.pop();
-  if (!h) return;
-  peindreFace(h.cle, h.avant);
-  historiquePeinture.pop(); // l'annulation elle-même ne s'empile pas
+  if (h) peindreFace(h.cle, h.avant, true);
 }
+
 function majOutilsVR() {
+  if (!majOutilsVR.aide) { majOutilsVR.aide = true; majAideVR(); }
   for (const m of manettesVR) {
     const src = m.src, gp = src?.gamepad;
     if (!src || !gp) continue;
     const gachette = gp.buttons[0]?.value || 0, poigne = gp.buttons[1]?.value || 0;
-    // Doigts : l'index suit la gâchette, les trois autres la poignée.
-    if (m.main) m.main.userData.doigts.forEach((d, k) => { d.rotation.x = -(k === 0 ? gachette : poigne) * 1.3; });
-    const appui = gachette > 0.6;
-    // --- Sac à dos (lot 4) : main passée derrière l'épaule (derrière et au-dessus du cou) +
-    // gâchette = on pioche l'outil suivant (main droite) ; la manette vibre en entrant dans le sac.
-    if (src.handedness === 'right') {
-      camXR.getWorldPosition(vTete); camXR.getWorldDirection(vRegard);
-      m.grip.getWorldPosition(vMain);
-      const vers = vMain.clone().sub(vTete), derriere = vers.x * vRegard.x + vers.z * vRegard.z < -0.05;
-      const dansSac = derriere && vMain.y > vTete.y - 0.35 && vers.length() < 0.6;
-      if (dansSac && !m.dansSac) gp.hapticActuators?.[0]?.pulse?.(0.3, 30);
-      if (dansSac && appui && !m.appuiAvant) {
-        changerOutilDroit(1);
-        gp.hapticActuators?.[0]?.pulse?.(0.8, 90);
-        m.appuiAvant = appui; m.dansSac = dansSac;
-        continue;
+    plierMain(m.main, gachette, poigne);
+    const appui = gachette > 0.6, clic = appui && !m.appuiAvant;
+    m.appuiAvant = appui;
+    if (src.handedness !== 'right') { m.ligne.visible = m.bout.visible = false; continue; } // main gauche : panneau d'aide
+    const vibrer = (f, ms) => gp.hapticActuators?.[0]?.pulse?.(f, ms);
+
+    // --- Sac à dos : main au-dessus de l'épaule droite ---
+    camXR.getWorldPosition(vTete); camXR.getWorldDirection(vRegard);
+    m.grip.getWorldPosition(vMain);
+    const vers = vMain.clone().sub(vTete);
+    const avant = vers.x * vRegard.x + vers.z * vRegard.z;
+    const dansSac = vMain.y > vTete.y - 0.25 && avant < 0.12 && Math.hypot(vers.x, vers.z) < 0.45;
+    if (dansSac && !m.dansSac) vibrer(0.35, 40);
+    m.dansSac = dansSac;
+    if (dansSac && clic) { ouvrirMenuOutils(); vibrer(0.8, 80); continue; }
+    if (menuOutils.visible) {
+      const h = viser(m, [menuOutils]);
+      montrerRayon(m, h, '#ffd84a');
+      menuOutils.children.forEach(t => { t.scale.setScalar(h?.object === t ? 1.12 : 1); });
+      if (clic) {
+        if (h?.object.userData.ui?.outil) { changerOutilDroit(0, h.object.userData.ui.outil); vibrer(0.7, 70); }
+        menuOutils.visible = false;
       }
-      m.dansSac = dansSac;
+      continue;
     }
-    if (src.handedness === 'right') {
-      // Nom de l'outil au-dessus de la main droite, 1,5 s après un changement.
-      etiquetteOutil.visible = performance.now() < afficherOutilJusqua;
-      if (etiquetteOutil.visible) {
-        etiquetteOutil.position.setFromMatrixPosition(m.grip.matrixWorld).add(new THREE.Vector3(0, 0.12, 0));
-        etiquetteOutil.userData.ecrire(outilDroit === 'electricite' ? `⚡ ${TYPES_ELEC[typeVR].lib}`.slice(0, 20)
-          : outilDroit === 'son' ? (sonVR.mode === 'voies' ? '🔊 Test des voies' : '🔊 Musique') : OUTILS_DROITE.find(o => o.id === outilDroit).nom);
+
+    if (outilDroit === 'son') {
+      m.ligne.visible = m.bout.visible = false;
+      if (clic) { if (sonVR.actif) arreterSon(); else lancerSon(); vibrer(0.5, 50); }
+      continue;
+    }
+
+    if (majOutilsVR.cablage !== (outilDroit === 'electricite')) majCablage(majOutilsVR.cablage = outilDroit === 'electricite');
+    if (outilDroit === 'electricite') {
+      const s = elec();
+      const hp = viser(m, s.groupe.children.filter(g => g.visible));
+      let pt = null;
+      for (let o = hp?.object; o && !pt; o = o.parent) pt = o.userData.point || null;
+      const h = pt ? hp : viser(m, scene.children);
+      montrerRayon(m, h, pt ? '#ff5a5a' : '#ffd84a');
+      if (clic && h) {
+        const ok = pt ? effacerPointVR(pt) : poserPointVR(h);
+        vibrer(ok ? 0.6 : 0.2, ok ? 70 : 20);
+        if (ok) majCablage(true);
       }
-      if (outilDroit === 'son') {
-        // --- Son spatial : gâchette = lancer / arrêter ---
-        m.ligne.visible = false;
-        if (appui && !m.appuiAvant) { if (sonVR.actif) arreterSon(); else lancerSon(); gp.hapticActuators?.[0]?.pulse?.(0.5, 50); }
-        m.appuiAvant = appui;
-        continue;
+      continue;
+    }
+
+    if (outilDroit === 'metre') {
+      const h = viser(m, scene.children);
+      montrerRayon(m, h, '#ffd84a');
+      if (!mesureVR.b) majMetre(h?.point); // mesure en direct entre le point 1 et le point visé
+      if (clic && h) {
+        if (mesureVR.b) { remettreMetre(); mesureVR.a = h.point.clone(); }
+        else if (!mesureVR.a) mesureVR.a = h.point.clone();
+        else mesureVR.b = h.point.clone();
+        majMetre();
+        vibrer(0.6, 50);
       }
-      bombe.visible = nuancier.visible = outilDroit === 'peinture';
-      if (majOutilsVR.cablage !== (outilDroit === 'electricite')) majCablage(majOutilsVR.cablage = outilDroit === 'electricite');
-      if (outilDroit === 'electricite') {
-        // --- Électricité ---
-        const s = elec();
-        const hp = viser(m, s.groupe.children.filter(g => g.visible));
-        let pt = null;
-        for (let o = hp?.object; o && !pt; o = o.parent) pt = o.userData.point || null;
-        const h = pt ? hp : viser(m, scene.children);
-        m.ligne.visible = true;
-        m.ligne.material.color.set(pt ? '#ff5a5a' : '#ffd84a');
-        m.ligne.scale.z = h ? h.distance : 3;
-        if (appui && !m.appuiAvant && h) {
-          const ok = pt ? effacerPointVR(pt) : poserPointVR(h);
-          gp.hapticActuators?.[0]?.pulse?.(ok ? 0.6 : 0.2, ok ? 70 : 20);
-          if (ok) majCablage(true);
-        }
-        m.appuiAvant = appui;
-        continue;
+      continue;
+    }
+
+    if (outilDroit === 'peinture') {
+      // Nuancier ouvert : on vise d'abord ses pastilles et boutons.
+      const hu = nuancierVR.visible ? viser(m, [nuancierVR]) : null;
+      const ui = hu?.object.userData.ui;
+      const h = ui ? hu : viser(m, scene.children);
+      const face = !ui && h?.object.userData.peinture;
+      montrerRayon(m, h, ui?.teinte?.hex || (face ? '#ffd84a' : '#ffffff'));
+      survolerMurVR(face ? face.cle : null);
+      if (clic) {
+        if (ui?.teinte && murVR) { peindreFace(murVR, ui.teinte.hex); vibrer(0.7, 80); }
+        else if (ui?.action === 'annuler') { annulerPeinture(); vibrer(0.5, 50); }
+        else if (ui?.action === 'origine' && murVR) {
+          const origine = couchesVR.find(c => c.userData.peinture.cle === murVR)?.userData.peinture.origine;
+          if (origine) peindreFace(murVR, origine); vibrer(0.5, 50);
+        } else if (face) { choisirMurVR(face.cle); vibrer(0.5, 50); }
+        else if (!ui) choisirMurVR(null);
       }
-      if (outilDroit === 'peinture') {
-        // --- Bombe de peinture ---
-        const h = viser(m, scene.children);
-        m.ligne.visible = true;
-        m.ligne.material.color.set(teinteVR.hex);
-        m.ligne.scale.z = h ? h.distance : 3;
-        const pastille = h?.object.userData.teinte, face = h?.object.userData.peinture;
-        if (pastille) { // survol d'une pastille : son nom ; gâchette : on la prend
-          etiquetteOutil.visible = true;
-          etiquetteOutil.position.setFromMatrixPosition(m.grip.matrixWorld).add(new THREE.Vector3(0, 0.12, 0));
-          etiquetteOutil.userData.ecrire(pastille.nom.length > 18 ? pastille.nom.slice(0, 17) + '…' : pastille.nom);
-          if (appui && !m.appuiAvant) { teinteVR = pastille; bombe.material.color.set(pastille.hex); gp.hapticActuators?.[0]?.pulse?.(0.4, 40); }
-        } else if (face && appui) { // gâchette tenue sur un mur : la face prend la teinte
-          if ((peinturesVR[face.cle] || face.origine) !== teinteVR.hex) gp.hapticActuators?.[0]?.pulse?.(0.7, 80);
-          peindreFace(face.cle, teinteVR.hex);
-        }
-        m.appuiAvant = appui;
-        continue;
-      }
-      m.ligne.material.color.set('#ffffff');
-      // --- Table holographique (lot 5) : prioritaire si on la vise ou si on la tient ---
-      if (!saisieVR && manipulerHolo(m, appui, gp, manettesVR.find(x => x !== m))) {
-        m.ligne.visible = true; m.ligne.scale.z = 1.5; m.ligne.material.color.set('#5ad1ff');
-        m.appuiAvant = appui;
-        continue;
-      }
-      // --- Prise des meubles ---
-      if (saisieVR) {
-        if (!appui) { // relâché : posé, calé, enregistré
-          const cale = caleBanquettesMur();
-          caleTableBanquette();
-          sauverMeubles();
-          cadre.visible = false;
-          saisieVR = null;
-        } else {
-          matRay.identity().extractRotation(m.ray.matrixWorld);
-          rayVR.ray.origin.setFromMatrixPosition(m.ray.matrixWorld);
-          rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
-          if (rayVR.ray.intersectPlane(saisieVR.plan, surSol)) {
-            bougerMeuble(saisieVR.g, (surSol.x + saisieVR.dx) * 100, -(surSol.z + saisieVR.dz) * 100, saisieVR.g.userData.angle);
-            cadre.setFromObject(saisieVR.g);
-          }
+      continue;
+    }
+
+    // --- ✋ Main : hologramme puis meubles ---
+    if (!saisieVR && manipulerHolo(m, appui, gp, manettesVR.find(x => x !== m))) { montrerRayon(m, null, '#5ad1ff'); m.ligne.scale.z = 1.5; continue; }
+    if (saisieVR) {
+      if (!appui) { caleBanquettesMur(); caleTableBanquette(); sauverMeubles(); cadre.visible = false; saisieVR = null; }
+      else {
+        matRay.identity().extractRotation(m.ray.matrixWorld);
+        rayVR.ray.origin.setFromMatrixPosition(m.ray.matrixWorld);
+        rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
+        if (rayVR.ray.intersectPlane(saisieVR.plan, surSol)) {
+          bougerMeuble(saisieVR.g, (surSol.x + saisieVR.dx) * 100, -(surSol.z + saisieVR.dz) * 100, saisieVR.g.userData.angle);
+          cadre.setFromObject(saisieVR.g);
         }
       }
-      const h = saisieVR ? null : viser(m, meubles.filter(g => g.visible && !g.userData.meuble.fixe));
-      const g = h && meubleDe(h.object);
-      m.ligne.visible = true;
-      m.ligne.scale.z = h ? h.distance : 3;
-      if (!saisieVR) { cadre.visible = !!g; if (g) cadre.setFromObject(g); }
-      if (g && appui && !m.appuiAvant) {
-        const plan = new THREE.Plane(new THREE.Vector3(0, 1, 0), -g.position.y);
-        if (rayVR.ray.intersectPlane(plan, surSol)) saisieVR = { g, plan, dx: g.position.x - surSol.x, dz: g.position.z - surSol.z };
-        src.gamepad.hapticActuators?.[0]?.pulse?.(0.6, 60);
-      }
-      m.appuiAvant = appui;
-    } else {
-      // --- Télémètre laser ---
-      const laser = gachette > 0.3;
-      const h = laser || gp.buttons[4]?.pressed ? viser(m, scene.children) : null;
-      m.ligne.visible = laser;
-      m.ligne.material.color.set(laser ? '#ff2a2a' : '#ffffff');
-      if (laser) m.ligne.scale.z = h ? h.distance : 5;
-      pointVR.visible = laser && !!h;
-      etiquetteLaser.visible = laser && !!h;
-      if (laser && h) {
-        pointVR.position.copy(h.point);
-        etiquetteLaser.position.setFromMatrixPosition(m.ray.matrixWorld).add(new THREE.Vector3(0, 0.07, 0));
-        etiquetteLaser.userData.ecrire(mesureTxt(h.distance));
-      }
-      // Mesure entre deux points : bouton A/B (n° 4 sur l'Index) de la manette gauche.
-      const ab = !!(gp.buttons[4]?.pressed || gp.buttons[5]?.pressed);
-      if (ab && !mesureAB.appui) {
-        if (mesureAB.a && mesureAB.b) { mesureAB.a = mesureAB.b = null; }
-        else if (h) { if (!mesureAB.a) mesureAB.a = h.point.clone(); else mesureAB.b = h.point.clone(); }
-        src.gamepad.hapticActuators?.[0]?.pulse?.(0.4, 40);
-      }
-      mesureAB.appui = ab;
-      const [ba, bb] = mesureAB.billes;
-      ba.visible = !!mesureAB.a; bb.visible = !!mesureAB.b;
-      if (mesureAB.a) ba.position.copy(mesureAB.a);
-      if (mesureAB.b) bb.position.copy(mesureAB.b);
-      const deux = !!(mesureAB.a && mesureAB.b);
-      mesureAB.trait.visible = mesureAB.etiquette.visible = deux;
-      if (deux) {
-        mesureAB.trait.geometry.setFromPoints([mesureAB.a, mesureAB.b]);
-        mesureAB.etiquette.position.copy(mesureAB.a).add(mesureAB.b).multiplyScalar(0.5).add(new THREE.Vector3(0, 0.05, 0));
-        mesureAB.etiquette.userData.ecrire(mesureTxt(mesureAB.a.distanceTo(mesureAB.b)));
-      }
+    }
+    const h = saisieVR ? null : viser(m, meubles.filter(g => g.visible && !g.userData.meuble.fixe));
+    const g = h && meubleDe(h.object);
+    montrerRayon(m, h, g ? '#ffd84a' : '#ffffff');
+    if (!saisieVR) { cadre.visible = !!g; if (g) cadre.setFromObject(g); }
+    if (g && clic) {
+      const plan = new THREE.Plane(new THREE.Vector3(0, 1, 0), -g.position.y);
+      if (rayVR.ray.intersectPlane(plan, surSol)) saisieVR = { g, plan, dx: g.position.x - surSol.x, dz: g.position.z - surSol.z };
+      vibrer(0.6, 60);
     }
   }
 }
