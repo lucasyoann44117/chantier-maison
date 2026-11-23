@@ -3552,9 +3552,13 @@ function majVR(dt) {
       else if (boutonB && !majVR.boutonB && outilDroit === 'metre') { remettreMetre(); mesureVR.txt = ''; majAideVR(); }
       // Outil son : A/B passe du test des voies à la musique (et relance si ça joue).
       else if (boutonB && !majVR.boutonB && outilDroit === 'son') {
-        sonVR.mode = sonVR.mode === 'voies' ? 'musique' : 'voies'; majAideVR();
-        afficherOutilJusqua = performance.now() + 1500;
-        if (sonVR.actif) lancerSon();
+        const i = MODES_SON.findIndex(x => x.mode === sonVR.mode && x.zone === sonVR.zone), s = MODES_SON[(i + 1) % MODES_SON.length];
+        const relancer = sonVR.actif && s.mode !== sonVR.mode;
+        sonVR.mode = s.mode; sonVR.zone = s.zone; majVolumeSon(); majAideVR();
+        if (relancer) lancerSon();
+      }
+      else if (boutonB && !majVR.boutonB && outilDroit === 'main' && (etatVR.assisSur || majOutilsVR.siege)) {
+        if (etatVR.assisSur) seLever(); else sAsseoir(majOutilsVR.siege);
       }
       // Outil électricité : A/B passe au type de point suivant.
       else if (boutonB && !majVR.boutonB && outilDroit === 'electricite') {
@@ -3573,7 +3577,9 @@ function majVR(dt) {
       // Tourner par crans (plus confortable qu'une rotation continue en casque). Meuble tenu à la
       // gâchette : le joystick droit le fait pivoter de 15° par cran au lieu de tourner la vue.
       // Joystick droit vers le haut / le bas : outil suivant / précédent de la main droite.
-      if (Math.abs(ay) > 0.7 && Math.abs(ax) < 0.4 && cranTourne <= 0 && !saisieVR) {
+      if (outilDroit === 'son' && Math.abs(ay) > 0.3 && Math.abs(ax) < 0.4) {
+        sonVR.volume = Math.min(1, Math.max(0, sonVR.volume - ay * dt * 0.5)); majVolumeSon(); majAideVR();
+      } else if (Math.abs(ay) > 0.7 && Math.abs(ax) < 0.4 && cranTourne <= 0 && !saisieVR) {
         changerOutilDroit(ay < 0 ? 1 : -1);
         cranTourne = 0.4;
       }
@@ -3587,6 +3593,7 @@ function majVR(dt) {
       }
     } else {
       marche.x = ax; marche.y = ay;
+      if (etatVR.assisSur && Math.hypot(ax, ay) > 0.5) seLever();
       // Clic du joystick gauche : bascule assis / debout (Yoann, 19/11). Assis : la vue est
       // remontée à 1,65 m quelle que soit la hauteur du casque ; debout : vraie hauteur.
       const clicG = !!src.gamepad.buttons?.[3]?.pressed;
@@ -3599,7 +3606,7 @@ function majVR(dt) {
   }
   if (appuyes.length) etatVR.boutons = appuyes.join(' / ');
   cranTourne -= dt;
-  majVisite(dt);
+  if (!etatVR.assisSur) majVisite(dt);
   // Mode assis (Sophie, 19/11) : si les yeux sont sous 1,40 m au départ (personne assise),
   // la vue est remontée à 1,65 m, hauteur d'un adulte debout. Décidé une fois, 1 s après l'entrée.
   if (etatVR.assis === undefined && etatVR.images > 60 && camXR.position.y > 0.3) {
@@ -3800,8 +3807,23 @@ function bruitRose(ctx, duree) {
 }
 function arreterSon() {
   clearTimeout(sonVR.minuterie);
-  for (const s of sonVR.sources) { try { s.audio.stop?.(); } catch {} try { s.osc?.forEach(o => o.stop()); } catch {} s.parent?.remove(s.audio); }
+  for (const s of sonVR.sources) { try { s.audio.stop?.(); } catch {} try { s.audio.disconnect?.(); } catch {} scene.remove(s.audio); }
   sonVR.sources = []; sonVR.actif = false;
+  if (sonVR.lecteur) sonVR.lecteur.pause();
+}
+// Musique libre (24/11) : 1re Gymnopédie d'Erik Satie au piano, enregistrement Musopen (Robin
+// Alciatore), domaine public, hébergée par Wikimedia Commons (lecture autorisée depuis la page).
+const MUSIQUE_VR = { titre: 'Satie, Gymnopédie n° 1', url: 'https://upload.wikimedia.org/wikipedia/commons/9/90/Erik_Satie_-_gymnopedies_-_la_1_ere._lent_et_douloureux.ogg' };
+// Zones du Marantz : salon (Chorus avant, IW6 arrière, caisson) et salle à manger (zone 2 : IW6
+// sur les poteaux). Choix au bouton A/B, volume au joystick droit (haut / bas).
+const ZONES_SON = [{ id: 'salon', nom: 'salon' }, { id: 'repas', nom: 'salle à manger' }, { id: 'deux', nom: 'les deux zones' }];
+const MODES_SON = [...ZONES_SON.map(z => ({ mode: 'musique', zone: z.id, nom: `🎵 Musique · ${z.nom}` })), { mode: 'voies', zone: 'deux', nom: '🔈 Test des voies' }];
+sonVR.zone = 'salon'; sonVR.mode = 'musique'; sonVR.volume = 0.6;
+const zoneEnceinte = e => (/repas/.test(e.g.userData.meuble.id) ? 'repas' : 'salon');
+const gainZone = z => (sonVR.zone === 'deux' || sonVR.zone === z ? 1 : 0);
+function majVolumeSon() {
+  if (sonVR.maitre) sonVR.maitre.gain.setTargetAtTime(sonVR.volume, sonVR.ctx.currentTime, 0.05);
+  for (const s of sonVR.sources) if (s.zone && s.gain) s.gain.gain.setTargetAtTime(gainZone(s.zone), sonVR.ctx.currentTime, 0.15);
 }
 function lancerSon() {
   if (!sonVR.listener) return;
@@ -3824,27 +3846,29 @@ function lancerSon() {
       if (!sonVR.actif) return;
       sonVR.sources.forEach(s => { try { s.audio.stop(); } catch {} scene.remove(s.audio); });
       const e = enc[k++ % enc.length], a = source(e);
-      a.setBuffer(bruitRose(sonVR.ctx, 1.5)); a.setVolume(0.6); a.play();
+      a.setBuffer(bruitRose(sonVR.ctx, 1.5)); a.setVolume(sonVR.volume); a.play();
       sonVR.sources = [{ audio: a }];
       sonVR.minuterie = setTimeout(suivante, 1800);
     };
     suivante();
-  } else {
-    // Petit morceau : accords doux (do, la mineur, fa, sol) sur toutes les enceintes.
-    const ctx = sonVR.ctx, t0 = ctx.currentTime, accords = [[261.6, 329.6, 392], [220, 261.6, 329.6], [174.6, 220, 261.6], [196, 246.9, 293.7]];
-    for (const e of enc) {
-      const g = ctx.createGain(); g.gain.value = 0;
-      const osc = [];
-      for (let v = 0; v < 3; v++) {
-        const o = ctx.createOscillator(); o.type = v === 0 ? 'triangle' : 'sine';
-        for (let i = 0; i < 64; i++) o.frequency.setValueAtTime(accords[i % 4][v] * (v === 0 ? 0.5 : 1), t0 + i * 1.6);
-        o.connect(g); o.start(); osc.push(o);
-      }
-      for (let i = 0; i < 64; i++) { g.gain.setValueAtTime(0.0001, t0 + i * 1.6); g.gain.exponentialRampToValueAtTime(0.18, t0 + i * 1.6 + 0.08); g.gain.exponentialRampToValueAtTime(0.03, t0 + i * 1.6 + 1.5); }
-      const a = source(e, g);
-      sonVR.sources.push({ audio: a, osc });
-    }
+    return;
   }
+  // Musique : un lecteur, un volume général, un gain par zone, une source par enceinte.
+  const ctx = sonVR.ctx;
+  if (!sonVR.lecteur) {
+    sonVR.lecteur = new Audio(); sonVR.lecteur.crossOrigin = 'anonymous'; sonVR.lecteur.loop = true; sonVR.lecteur.src = MUSIQUE_VR.url;
+    sonVR.noeudLecteur = ctx.createMediaElementSource(sonVR.lecteur);
+    sonVR.maitre = ctx.createGain(); sonVR.noeudLecteur.connect(sonVR.maitre);
+  }
+  sonVR.maitre.gain.value = sonVR.volume;
+  for (const e of enc) {
+    const z = zoneEnceinte(e), g = ctx.createGain();
+    g.gain.value = gainZone(z);
+    sonVR.maitre.connect(g);
+    const a = source(e, g);
+    sonVR.sources.push({ audio: a, gain: g, zone: z });
+  }
+  sonVR.lecteur.play().catch(err => erreurVR(err));
 }
 
 // ---------- VR, lot 3 (23/11) : électricité au casque et câblage automatique ----------
@@ -4028,16 +4052,17 @@ function manipulerHolo(m, appui, gp, autre) {
 let outilDroit = 'main', afficherOutilJusqua = 0;
 // Ce que fait chaque bouton, affiché sur le panneau d'aide du poignet gauche.
 const AIDE_OUTILS = {
-  main: ['✋ Main', 'Gâchette sur un meuble : l\'attraper', 'Joystick ← → en le tenant : tourner', 'A/B : plafond de la cuisine suivant'],
+  main: ['✋ Main', 'Main sur un meuble + gâchette : le prendre', 'De loin : viser + gâchette (il suit)', 'A/B sur canapé, lit, chaise : s\'asseoir'],
   metre: ['📏 Mètre', 'Gâchette : point 1, puis point 2', 'La distance s\'affiche en cm', '3e gâchette ou A/B : recommencer'],
   peinture: ['🎨 Peinture', 'Gâchette sur un mur : le choisir', 'Gâchette sur une couleur : appliquer', 'A/B : annuler'],
   electricite: ['⚡ Électricité', 'Gâchette sur un mur : poser le point', 'Gâchette sur un point bleu : l\'effacer', 'A/B : type suivant'],
-  son: ['🔊 Son', 'Gâchette : lancer / arrêter', 'A/B : test des voies ↔ musique', ''],
+  son: ['🔊 Son', 'Gâchette : lecture / arrêt', 'A/B : salon, salle à manger, les deux', 'Joystick ↑ ↓ : volume'],
 };
 function majAideVR() {
   const l = [...AIDE_OUTILS[outilDroit]];
   if (outilDroit === 'electricite') l[0] = `⚡ ${TYPES_ELEC[typeVR].lib}`;
-  if (outilDroit === 'son') l[0] = sonVR.mode === 'voies' ? '🔊 Test des voies' : '🔊 Musique';
+  if (outilDroit === 'son') { l[0] = MODES_SON.find(x => x.mode === sonVR.mode && x.zone === sonVR.zone)?.nom || '🔊 Son'; l[3] = `Joystick ↑ ↓ : volume ${Math.round(sonVR.volume * 100)} %`; }
+  if (outilDroit === 'main' && etatVR.assisSur) l[3] = 'A/B ou marcher : se lever';
   if (outilDroit === 'metre' && mesureVR.txt) l[3] = `Dernière mesure : ${mesureVR.txt}`;
   l.push('🎒 Main droite sur l\'épaule + gâchette : outils');
   aideVR.userData.ecrire(l.filter(Boolean));
@@ -4168,6 +4193,47 @@ function annulerPeinture() {
   if (h) peindreFace(h.cle, h.avant, true);
 }
 
+// --- S'asseoir (24/11) : A/B en visant un canapé, un lit, une chaise… ; marcher ou A/B = se lever ---
+const SIEGES = /canape|fauteuil|lit|banquette|chaise|pouf|banc/i;
+const hauteurAssise = o => (/lit/i.test(o.modele) ? 0.55 : /pouf/i.test(o.modele) ? 0.4 : 0.46);
+function sAsseoir(g) {
+  const o = g.userData.meuble, a = (g.userData.angle || 0) * Math.PI / 180, fx = Math.sin(a), fy = -Math.cos(a);
+  const p = new THREE.Vector3(); g.getWorldPosition(p);
+  // Face au devant du siège ; la tête (décalée dans la pièce réelle) ramenée au-dessus de l'assise.
+  eTete.setFromQuaternion(camXR.quaternion, 'YXZ');
+  lacetChariot = Math.atan2(-fx, fy) - eTete.y;
+  const hx = camXR.position.x, hz = camXR.position.z, c = Math.cos(lacetChariot), s = Math.sin(lacetChariot);
+  joueur.x = p.x + fx * 0.05 - (hx * c + hz * s);
+  joueur.z = p.z - fy * 0.05 - (-hx * s + hz * c);
+  joueur.alt = g.position.y - M(o.z || 0);
+  etatVR.assis = hauteurAssise(o) + 0.72 - camXR.position.y; // yeux d'une personne assise
+  etatVR.assisSur = g;
+  majAideVR();
+}
+function seLever() {
+  etatVR.assisSur = null;
+  etatVR.assis = camXR.position.y < 1.4 ? 1.65 - camXR.position.y : 0;
+  majAideVR();
+}
+// --- Prendre un meuble à la main (24/11) : main contre le meuble + gâchette ; il suit la main
+// (et tourne avec elle) jusqu'à ce qu'on lâche. ---
+let saisieMain = null;
+const boiteProche = new THREE.Box3();
+function meubleSousLaMain(vMainPos) {
+  let meilleur = null, dMin = 0.06;
+  for (const g of meubles) {
+    if (!g.visible || g.userData.meuble.fixe || g.userData.places[phase]?.reserve) continue;
+    if (Math.hypot(g.position.x - vMainPos.x, g.position.z - vMainPos.z) > 1.6) continue;
+    // Boîte gardée en cache tant que le meuble n'a pas bougé (calcul coûteux à chaque image).
+    const u = g.userData, cle = `${u.x}|${u.y}|${u.angle}|${g.position.y}`;
+    if (u.boiteVR?.cle !== cle) u.boiteVR = { cle, boite: new THREE.Box3().setFromObject(g) };
+    boiteProche.copy(u.boiteVR.boite);
+    const d = boiteProche.distanceToPoint(vMainPos);
+    if (d < dMin) { dMin = d; meilleur = g; }
+  }
+  return meilleur;
+}
+const lacetMain = m => { const q = new THREE.Quaternion(); m.grip.getWorldQuaternion(q); return new THREE.Euler().setFromQuaternion(q, 'YXZ').y; };
 function majOutilsVR() {
   if (!majOutilsVR.aide) { majOutilsVR.aide = true; majAideVR(); }
   for (const m of manettesVR) {
@@ -4256,7 +4322,34 @@ function majOutilsVR() {
       continue;
     }
 
-    // --- ✋ Main : hologramme puis meubles ---
+    // --- ✋ Main : prise à la main d'abord ---
+    if (saisieMain) {
+      if (!appui) { caleBanquettesMur(); caleTableBanquette(); sauverMeubles(); cadre.visible = false; saisieMain = null; vibrer(0.3, 30); }
+      else {
+        const da = (lacetMain(m) - saisieMain.lacet) * 180 / Math.PI;
+        const angle = ((Math.round((saisieMain.angle + da) / 5) * 5) % 360 + 360) % 360;
+        bougerMeuble(saisieMain.g, (vMain.x + saisieMain.dx) * 100, -(vMain.z + saisieMain.dz) * 100, angle);
+        cadre.setFromObject(saisieMain.g);
+      }
+      m.ligne.visible = m.bout.visible = false;
+      continue;
+    }
+    const proche = !saisieVR && meubleSousLaMain(vMain);
+    if (proche) {
+      m.ligne.visible = m.bout.visible = false;
+      cadre.visible = true; cadre.setFromObject(proche);
+      if (proche !== m.procheAvant) vibrer(0.25, 25);
+      m.procheAvant = proche;
+      if (clic) { saisieMain = { g: proche, dx: proche.position.x - vMain.x, dz: proche.position.z - vMain.z, lacet: lacetMain(m), angle: proche.userData.angle || 0 }; vibrer(0.7, 70); }
+      continue;
+    }
+    m.procheAvant = null;
+    // Siège visé (pour A/B = s'asseoir)
+    {
+      const hs = viser(m, meubles.filter(g => g.visible && SIEGES.test(g.userData.meuble.modele || '')));
+      const sg = hs && meubleDe(hs.object);
+      if (sg !== majOutilsVR.siege) { majOutilsVR.siege = sg || null; const l = AIDE_OUTILS.main; l[3] = sg ? `A/B : s'asseoir (${sg.userData.meuble.nom || 'siège'})`.slice(0, 44) : 'A/B sur canapé, lit, chaise : s\'asseoir'; majAideVR(); }
+    }
     if (!saisieVR && manipulerHolo(m, appui, gp, manettesVR.find(x => x !== m))) { montrerRayon(m, null, '#5ad1ff'); m.ligne.scale.z = 1.5; continue; }
     if (saisieVR) {
       if (!appui) { caleBanquettesMur(); caleTableBanquette(); sauverMeubles(); cadre.visible = false; saisieVR = null; }
