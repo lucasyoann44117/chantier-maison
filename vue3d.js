@@ -4411,7 +4411,8 @@ boutonVR.addEventListener('click', async () => {
   try { preparerSon(); } catch (err) { console.warn('Son indisponible', err); } // geste utilisateur : l'audio est autorisé ici
   const ok = await navigator.xr?.isSessionSupported?.('immersive-vr').catch(() => false);
   if (!ok) {
-    alert('Casque non détecté. Brancher le casque, lancer SteamVR, puis ouvrir la maquette dans Chrome ou Edge sur ce PC.');
+    // (pas d'alert() : la fenêtre bloquait la page et le pilotage à distance, 23/11)
+    etatVR.etape = 'casque non détecté : branche le casque, lance SteamVR (il met ~30 s), puis reclique sur 🥽 VR'; majSuiviVR();
     return;
   }
   etatVR.etape = 'demande de session'; etatVR.images = 0; etatVR.erreur = ''; etatVR.assis = undefined; majSuiviVR();
