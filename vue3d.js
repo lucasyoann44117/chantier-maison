@@ -2831,6 +2831,7 @@ function majElec() {
     g.scale.setScalar(choisi ? 1.6 : 1);
     g.children[0].material.emissive?.set(choisi ? '#7a5c00' : '#000');
   }
+  majElec.cablage?.(s.actif); // câblage automatique des haut-parleurs (lot 3, défini plus bas)
   majPanneauElec();
 }
 function sauverElec() {
@@ -3498,6 +3499,11 @@ function majVR(dt) {
       const boutonB = !!(src.gamepad.buttons?.[4]?.pressed || src.gamepad.buttons?.[5]?.pressed);
       // Outil peinture en main : A/B annule le dernier coup de bombe (au lieu du plafond).
       if (boutonB && !majVR.boutonB && outilDroit === 'peinture') annulerPeinture();
+      // Outil électricité : A/B passe au type de point suivant.
+      else if (boutonB && !majVR.boutonB && outilDroit === 'electricite') {
+        typeVR = TYPES_VR[(TYPES_VR.indexOf(typeVR) + 1) % TYPES_VR.length];
+        afficherOutilJusqua = performance.now() + 1500;
+      }
       else if (boutonB && !majVR.boutonB) {
         const c = choixPlafond(), sel = majSelecteurPlafond.el;
         if (c) {
@@ -3657,7 +3663,62 @@ const TEINTES_VR = [
   { nom: 'Vert olive', hex: '#7d8455' }, { nom: 'Bleu canard', hex: '#2f6670' },
   { nom: 'Anthracite', hex: '#4a4d50' }, { nom: 'Ocre', hex: '#c9a25a' },
 ];
-const OUTILS_DROITE = [{ id: 'main', nom: '✋ Main' }, { id: 'peinture', nom: '🎨 Peinture' }];
+const OUTILS_DROITE = [{ id: 'main', nom: '✋ Main' }, { id: 'peinture', nom: '🎨 Peinture' }, { id: 'electricite', nom: '⚡ Électricité' }];
+
+// ---------- VR, lot 3 (23/11) : électricité au casque et câblage automatique ----------
+// Outil ⚡ : on vise un mur, gâchette = pose du point choisi à l'endroit exact visé (hauteur
+// comprise) ; point lumineux : on vise le plafond ou le sol. A/B = type suivant. Gâchette sur un
+// point « à ajouter » = on l'efface (les points relevés existants ne s'effacent pas au casque).
+const TYPES_VR = ['prise', 'prise2', 'inter', 'vav', 'rj45', 'hp', 'hp4', 'applique', 'lum'];
+let typeVR = 'prise';
+function poserPointVR(h) {
+  const s = elec(), t = TYPES_ELEC[typeVR];
+  const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+  const niv = h.object.userData.niveau === 1 || h.point.y > BASE_ETAGE - 0.05 ? 1 : 0, sol = niv ? BASE_ETAGE : 0;
+  const etat = phase === 'apres' ? 'nouveau' : 'existant', id = 'e' + Date.now().toString(36);
+  let p;
+  if (t.plafond) {
+    if (Math.abs(n.y) < 0.5) return false; // un point lumineux se vise au plafond ou au sol
+    p = { id, type: typeVR, etat, x: Math.round(h.point.x * 1000) / 10, y: Math.round(-h.point.z * 1000) / 10, z: t.z, a: 0, niv };
+  } else {
+    if (Math.abs(n.y) > 0.3) return false; // il faut une face verticale (mur, cloison)
+    n.y = 0; n.normalize();
+    p = { id, type: typeVR, etat, x: Math.round((h.point.x + n.x * 0.006) * 1000) / 10, y: Math.round(-(h.point.z + n.z * 0.006) * 1000) / 10,
+      z: Math.max(5, Math.round((h.point.y - sol) * 100)), a: Math.round(Math.atan2(n.x, n.z) * 1000) / 1000, niv };
+  }
+  s.points.push(p); dessinerPoint(p); sauverElec(); majElec();
+  return true;
+}
+function effacerPointVR(p) {
+  const s = elec();
+  if (p.etat !== 'nouveau') return false;
+  s.points.splice(s.points.indexOf(p), 1);
+  s.groupe.remove(s.meshes.get(p.id)); s.meshes.delete(p.id);
+  sauverElec(); majElec();
+  return true;
+}
+// Câblage automatique : chaque prise haut-parleur est reliée au plastron 4 HP le plus proche
+// du même niveau (le bornier du home cinéma) : descente à 5 cm du sol, trajet au ras du sol,
+// remontée au plastron. Trait pointillé orange, visible avec ⚡ (écran) ou l'outil ⚡ (casque).
+const cablage = new THREE.Group();
+scene.add(cablage);
+function majCablage(montrer) {
+  cablage.clear();
+  cablage.visible = montrer;
+  if (!montrer) return;
+  const s = elec(), vus = s.points.filter(p => s.meshes.get(p.id)?.visible);
+  for (const hp of vus.filter(p => p.type === 'hp')) {
+    const bornier = vus.filter(p => p.type === 'hp4' && !!p.niv === !!hp.niv)
+      .sort((a, b) => Math.hypot(a.x - hp.x, a.y - hp.y) - Math.hypot(b.x - hp.x, b.y - hp.y))[0];
+    if (!bornier) continue;
+    const base = hp.niv ? BASE_ETAGE : 0, v = (p, z) => new THREE.Vector3(M(p.x), base + M(z), -M(p.y));
+    const g = new THREE.BufferGeometry().setFromPoints([v(hp, hp.z), v(hp, 5), v(bornier, 5), v(bornier, bornier.z)]);
+    const l = new THREE.Line(g, new THREE.LineDashedMaterial({ color: '#ff8a1f', dashSize: 0.06, gapSize: 0.04, depthTest: false }));
+    l.computeLineDistances(); l.renderOrder = 5;
+    cablage.add(marquerOutil(l));
+  }
+}
+majElec.cablage = actifEcran => majCablage(actifEcran || outilDroit === 'electricite');
 let outilDroit = 'main', teinteVR = TEINTES_VR[0], afficherOutilJusqua = 0;
 const etiquetteOutil = etiquetteVR(); etiquetteOutil.visible = false; scene.add(etiquetteOutil);
 function changerOutilDroit(sens) {
@@ -3713,9 +3774,28 @@ function majOutilsVR() {
       etiquetteOutil.visible = performance.now() < afficherOutilJusqua;
       if (etiquetteOutil.visible) {
         etiquetteOutil.position.setFromMatrixPosition(m.grip.matrixWorld).add(new THREE.Vector3(0, 0.12, 0));
-        etiquetteOutil.userData.ecrire(OUTILS_DROITE.find(o => o.id === outilDroit).nom);
+        etiquetteOutil.userData.ecrire(outilDroit === 'electricite' ? `⚡ ${TYPES_ELEC[typeVR].lib}`.slice(0, 20) : OUTILS_DROITE.find(o => o.id === outilDroit).nom);
       }
       bombe.visible = nuancier.visible = outilDroit === 'peinture';
+      if (majOutilsVR.cablage !== (outilDroit === 'electricite')) majCablage(majOutilsVR.cablage = outilDroit === 'electricite');
+      if (outilDroit === 'electricite') {
+        // --- Électricité ---
+        const s = elec();
+        const hp = viser(m, s.groupe.children.filter(g => g.visible));
+        let pt = null;
+        for (let o = hp?.object; o && !pt; o = o.parent) pt = o.userData.point || null;
+        const h = pt ? hp : viser(m, scene.children);
+        m.ligne.visible = true;
+        m.ligne.material.color.set(pt ? '#ff5a5a' : '#ffd84a');
+        m.ligne.scale.z = h ? h.distance : 3;
+        if (appui && !m.appuiAvant && h) {
+          const ok = pt ? effacerPointVR(pt) : poserPointVR(h);
+          gp.hapticActuators?.[0]?.pulse?.(ok ? 0.6 : 0.2, ok ? 70 : 20);
+          if (ok) majCablage(true);
+        }
+        m.appuiAvant = appui;
+        continue;
+      }
       if (outilDroit === 'peinture') {
         // --- Bombe de peinture ---
         const h = viser(m, scene.children);

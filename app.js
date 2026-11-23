@@ -402,6 +402,13 @@
       const ang = Math.atan2(-vx, vy) * 180 / Math.PI;
       return `<g transform="translate(${P(p.x + vx * 28, p.y - vy * 28)}) rotate(${ang.toFixed(1)}) scale(1.8)">${symboleElec(p.type, c)}</g>`;
     })()).join('');
+    // Câblage automatique des haut-parleurs (23/11) : chaque prise HP reliée au plastron 4 HP le
+    // plus proche (bornier du home cinéma), en pointillé orange, comme dans la maquette.
+    const borniers = points.filter(p => p.type === 'hp4');
+    const cables = borniers.length ? points.filter(p => p.type === 'hp').map(hp => {
+      const b = borniers.slice().sort((a, c) => Math.hypot(a.x - hp.x, a.y - hp.y) - Math.hypot(c.x - hp.x, c.y - hp.y))[0];
+      return `<line x1="${hp.x}" y1="${-hp.y}" x2="${b.x}" y2="${-b.y}" stroke="#ff8a1f" stroke-width="4" stroke-dasharray="14 9"/>`;
+    }).join('') : '';
     const consignes = notes.length ? `<h3>Consignes</h3><ol class="consignes-elec">${notes.map(p => `<li><strong>${esc(p.note)}</strong> <small>${esc(NOMS_ELEC[p.type] || 'Point')} · ${p.z ? `${p.z} cm du sol` : 'au sol'}${p.etat === 'nouveau' ? ' · à ajouter' : ''}</small></li>`).join('')}</ol>` : '';
     const compte = {};
     for (const p of points) compte[p.etat] = (compte[p.etat] || 0) + 1;
@@ -411,7 +418,8 @@
     return `<section class="bloc plan-impression"><h2>Plan du rez-de-chaussée</h2>
       <p class="discret pas-imprimer">Dessiné depuis la maquette : les points se posent avec le bouton ⚡ de la maquette, puis se marquent « à déplacer », « à ajouter » ou « à supprimer ». ${points.length ? `${points.length} point${points.length > 1 ? 's' : ''} posé${points.length > 1 ? 's' : ''}.` : 'Aucun point posé pour l\'instant.'}</p>
       <div class="plan-elec"><svg viewBox="${x0} ${-y1} ${x1 - x0} ${y1 - y0}" role="img" aria-label="Plan électrique du rez-de-chaussée">
-        <rect x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" fill="#fff"/>${murs}${baies}${noms}${sym}</svg></div>
+        <rect x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" fill="#fff"/>${murs}${baies}${noms}${cables}${sym}</svg></div>
+      ${cables ? '<p class="discret">Pointillés orange : câbles haut-parleurs, tirés automatiquement vers le plastron 4 HP (trajet indicatif, à faire passer par les plinthes ou les gaines).</p>' : ''}
       ${legende}
       ${consignes}
       <p class="pas-imprimer"><button class="btn" data-action="imprimer-plan">Imprimer ou enregistrer en PDF</button></p></section>`;
