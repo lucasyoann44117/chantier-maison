@@ -3510,7 +3510,9 @@ rendu.xr.enabled = true;
 rendu.xr.setReferenceSpaceType('local-floor');
 // Index : 2 écrans 1440 × 1600 à 90-144 Hz. Images allégées (70 % de la définition demandée par
 // SteamVR, rendu fovéal) et sans ombres pendant la visite au casque, sinon le PC ne suit pas.
-rendu.xr.setFramebufferScaleFactor(0.7);
+// 23/11 : Index + RTX 3070 → pleine définition demandée par SteamVR (plus net) maintenant que
+// l'hologramme ne coûte plus rien.
+rendu.xr.setFramebufferScaleFactor(1.0);
 rendu.xr.setFoveation(1);
 // Ombres figées en casque (calculées une fois, plus à chaque image) : pas de recompilation des
 // matériaux comme en les coupant, qui bloquait Chrome au passage en VR.
@@ -3918,18 +3920,41 @@ const disqueHolo = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.01, 4
 disqueHolo.position.y = -0.015; holo.add(disqueHolo);
 holo.add(holoMini);
 const etatHolo = { echelle: 1 / 35, tranche: 1, prise: null, deux: null }; // 1/35 : plus grand (Yoann, 23/11)
+// Fusion simple de géométries non indexées (positions seules).
+function fusionnerGeometries(liste) {
+  const total = liste.reduce((s, g) => s + g.attributes.position.count, 0), pos = new Float32Array(total * 3);
+  let k = 0;
+  for (const g of liste) { pos.set(g.attributes.position.array, k); k += g.attributes.position.array.length; g.dispose(); }
+  const r = new THREE.BufferGeometry();
+  r.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  return r;
+}
 function construireHolo() {
   holoMini.clear();
   const contenu = new THREE.Group(), b = new THREE.Box3(), c = new THREE.Vector3();
   // (les grands aplats du jardin, centrés sous la maison mais plus larges qu'elle, sont exclus)
   const dansMaison = o => { b.setFromObject(o); if (b.isEmpty()) return false; b.getCenter(c); return b.max.x - b.min.x < 16.5 && b.max.z - b.min.z < 15 && c.x > -0.5 && c.x < 16.5 && c.z > -15 && c.z < 0.5 && c.y < BASE_ETAGE - 0.05; };
-  const copier = (o, mat) => {
-    const k = o.clone(true);
-    k.traverse(x => { if (x.isMesh) { x.material = mat; x.castShadow = x.receiveShadow = false; } if (x.isLight) x.visible = false; });
-    contenu.add(k);
+  // Géométries fusionnées en deux volumes (murs, meubles) : 2 dessins par image au lieu de
+  // milliers (la VR tombait à 17 images/s). Seules les positions sont gardées.
+  const geos = { murs: [], meubles: [] };
+  const copier = (o, cle) => {
+    o.updateWorldMatrix(true, true);
+    o.traverse(x => {
+      if (!x.isMesh || !x.geometry?.attributes?.position || x.isSkinnedMesh) return;
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute('position', x.geometry.attributes.position.clone());
+      if (x.geometry.index) gg.setIndex(x.geometry.index.clone());
+      gg.applyMatrix4(x.matrixWorld);
+      geos[cle].push(gg.index ? gg.toNonIndexed() : gg);
+    });
   };
-  for (const o of elements) if (o.visible && o.isMesh && !plafonds.includes(o) && !o.userData.outilVR && dansMaison(o)) copier(o, matHolo);
-  for (const g of meubles) if (g.visible && dansMaison(g)) copier(g, matHoloMeuble);
+  for (const o of elements) if (o.visible && o.isMesh && !plafonds.includes(o) && !o.userData.outilVR && dansMaison(o)) copier(o, 'murs');
+  for (const g of meubles) if (g.visible && dansMaison(g)) copier(g, 'meubles');
+  for (const [cle, mat] of [['murs', matHolo], ['meubles', matHoloMeuble]]) {
+    if (!geos[cle].length) continue;
+    const fusion = fusionnerGeometries(geos[cle]);
+    contenu.add(new THREE.Mesh(fusion, mat));
+  }
   // Centre la miniature sur le socle, posée dessus.
   b.setFromObject(contenu); b.getCenter(c);
   contenu.position.set(-c.x, -b.min.y, -c.z);
@@ -3968,7 +3993,14 @@ if (location.hash.includes('son')) window.testSon = { preparerSon, lancerSon, ar
 if (location.hash.includes('holo')) setTimeout(() => { construireHolo(); holo.visible = true; }, 2000);
 // Appelé par la main droite (outil ✋) : renvoie vrai si l'hologramme est pris.
 function manipulerHolo(m, appui, gp, autre) {
-  const vise = viser(m, [holoMini, disqueHolo, socleHolo]);
+  // Visée : sphère autour de l'hologramme + socle (tester les milliers de pièces de la
+  // miniature à chaque image faisait tomber la VR à 17 images/s).
+  if (!holo.visible) return false;
+  const centreHolo = new THREE.Vector3(); holo.getWorldPosition(centreHolo); centreHolo.y += 0.25;
+  matRay.identity().extractRotation(m.ray.matrixWorld);
+  rayVR.ray.origin.setFromMatrixPosition(m.ray.matrixWorld);
+  rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
+  const vise = rayVR.ray.distanceToPoint(centreHolo) < 0.45 && rayVR.ray.origin.distanceTo(centreHolo) < 4 ? true : viser(m, [disqueHolo, socleHolo]);
   m.grip.getWorldPosition(vMain);
   const qMain = new THREE.Quaternion(); m.grip.getWorldQuaternion(qMain);
   const lacet = new THREE.Euler().setFromQuaternion(qMain, 'YXZ').y;
