@@ -3496,8 +3496,16 @@ function majVR(dt) {
         }
       }
       majVR.boutonB = boutonB;
-      // Tourner par crans (plus confortable qu'une rotation continue en casque).
-      if (Math.abs(ax) > 0.6 && cranTourne <= 0) { lacetChariot -= Math.sign(ax) * Math.PI / 6; cranTourne = 0.35; }
+      // Tourner par crans (plus confortable qu'une rotation continue en casque). Meuble tenu à la
+      // gâchette : le joystick droit le fait pivoter de 15° par cran au lieu de tourner la vue.
+      if (Math.abs(ax) > 0.6 && cranTourne <= 0) {
+        if (saisieVR) {
+          const u = saisieVR.g.userData;
+          bougerMeuble(saisieVR.g, u.x, u.y, ((u.angle - Math.sign(ax) * 15) % 360 + 360) % 360);
+          cadre.setFromObject(saisieVR.g);
+        } else lacetChariot -= Math.sign(ax) * Math.PI / 6;
+        cranTourne = 0.35;
+      }
     } else {
       marche.x = ax; marche.y = ay;
       // Clic du joystick gauche : bascule assis / debout (Yoann, 19/11). Assis : la vue est
@@ -3523,7 +3531,172 @@ function majVR(dt) {
   // Hauteur réelle des yeux au-dessus du sol de la maison (contrôle d'échelle : si elle dépasse
   // la vraie taille, le sol de SteamVR est mal calé et la maison paraît plus petite).
   etatVR.yeux = camXR.position.y + (etatVR.assis || 0);
+  try { majOutilsVR(); } catch (err) { erreurVR(err); }
   return camXR;
+}
+
+// ---------- VR, lot 1 (23/11) : mains, rayon, prise des meubles, télémètre laser ----------
+// Main droite : rayon blanc ; gâchette sur un meuble = on l'attrape, il suit le rayon au sol,
+// joystick droit = pivoter de 15°, on relâche = posé et enregistré (comme à l'écran).
+// Main gauche : gâchette = télémètre laser (point rouge + distance en direct) ; bouton A/B =
+// mesure entre deux points (1er appui point A, 2e point B, 3e on efface).
+let saisieVR = null;
+const outilsVR = new THREE.Group();
+chariot.add(outilsVR);
+const matPeau = new THREE.MeshStandardMaterial({ color: '#d9a98c', roughness: 0.75 });
+const marquerOutil = o => { o.traverse(x => { x.userData.outilVR = true; }); return o; };
+// Main stylisée (paume, 4 doigts, pouce) dans l'espace « grip » de la manette ; les doigts se
+// plient avec la gâchette (index) et la poignée (autres doigts).
+function mainVR(droite) {
+  const g = new THREE.Group(), s = droite ? 1 : -1;
+  const paume = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.085, 0.095), matPeau);
+  paume.position.set(s * 0.01, 0.0, 0.03); g.add(paume);
+  const doigts = [];
+  for (let k = 0; k < 4; k++) {
+    const pivot = new THREE.Group();
+    pivot.position.set(s * 0.01, 0.033 - k * 0.022, -0.018);
+    const d = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.017, 0.075), matPeau);
+    d.position.z = -0.036; pivot.add(d); g.add(pivot); doigts.push(pivot);
+  }
+  const pouce = new THREE.Group();
+  pouce.position.set(-s * 0.012, 0.04, 0.03); pouce.rotation.y = -s * 0.6;
+  const p = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.06), matPeau);
+  p.position.z = -0.03; pouce.add(p); g.add(pouce);
+  g.userData.doigts = doigts;
+  return marquerOutil(g);
+}
+// Étiquette texte toujours face au regard (sprite), pour les distances.
+function etiquetteVR() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 72;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
+  s.scale.set(0.16, 0.045, 1); s.renderOrder = 10;
+  s.userData.ecrire = txt => {
+    if (s.userData.txt === txt) return;
+    s.userData.txt = txt;
+    const x = c.getContext('2d');
+    x.clearRect(0, 0, 256, 72);
+    x.fillStyle = 'rgba(20,24,28,0.85)'; x.beginPath(); x.roundRect(4, 4, 248, 64, 18); x.fill();
+    x.fillStyle = '#ffd84a'; x.font = 'bold 40px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(txt, 128, 38);
+    t.needsUpdate = true;
+  };
+  return marquerOutil(s);
+}
+const cm = v => `${(v * 100).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} cm`;
+const mesureTxt = d => (d >= 1 ? `${d.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m` : cm(d));
+// Une manette : rayon (espace « target ray »), main (espace « grip »).
+const manettesVR = [0, 1].map(i => {
+  const ray = rendu.xr.getController(i), grip = rendu.xr.getControllerGrip(i);
+  outilsVR.add(ray, grip);
+  const ligne = marquerOutil(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
+    new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6 })));
+  ligne.visible = false; ray.add(ligne);
+  const m = { ray, grip, ligne, main: null, src: null };
+  ray.addEventListener('connected', e => {
+    m.src = e.data;
+    if (m.main) grip.remove(m.main);
+    m.main = mainVR(e.data.handedness === 'right');
+    grip.add(m.main);
+  });
+  ray.addEventListener('disconnected', () => { m.src = null; });
+  return m;
+});
+const pointVR = marquerOutil(new THREE.Mesh(new THREE.SphereGeometry(0.012, 16, 12), new THREE.MeshBasicMaterial({ color: '#ff2a2a' })));
+pointVR.visible = false; scene.add(pointVR);
+const etiquetteLaser = etiquetteVR(); etiquetteLaser.visible = false; scene.add(etiquetteLaser);
+const mesureAB = { a: null, b: null, appui: false,
+  billes: [0, 1].map(() => { const b = marquerOutil(new THREE.Mesh(new THREE.SphereGeometry(0.015, 16, 12), new THREE.MeshBasicMaterial({ color: '#ffd84a' }))); b.visible = false; scene.add(b); return b; }),
+  trait: marquerOutil(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: '#ffd84a', depthTest: false }))),
+  etiquette: etiquetteVR() };
+mesureAB.trait.visible = mesureAB.etiquette.visible = false; scene.add(mesureAB.trait, mesureAB.etiquette);
+const rayVR = new THREE.Raycaster(), matRay = new THREE.Matrix4();
+const estVu = o => { for (let x = o; x; x = x.parent) if (!x.visible) return false; return true; };
+function viser(m, cibles) {
+  matRay.identity().extractRotation(m.ray.matrixWorld);
+  rayVR.ray.origin.setFromMatrixPosition(m.ray.matrixWorld);
+  rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
+  rayVR.far = 30;
+  for (const h of rayVR.intersectObjects(cibles, true)) {
+    if (h.object.userData.outilVR || !estVu(h.object) || h.object.material?.visible === false) continue;
+    return h;
+  }
+  return null;
+}
+const meubleDe = o => { while (o && !meubles.includes(o)) o = o.parent; return o; };
+function majOutilsVR() {
+  for (const m of manettesVR) {
+    const src = m.src, gp = src?.gamepad;
+    if (!src || !gp) continue;
+    const gachette = gp.buttons[0]?.value || 0, poigne = gp.buttons[1]?.value || 0;
+    // Doigts : l'index suit la gâchette, les trois autres la poignée.
+    if (m.main) m.main.userData.doigts.forEach((d, k) => { d.rotation.x = -(k === 0 ? gachette : poigne) * 1.3; });
+    const appui = gachette > 0.6;
+    if (src.handedness === 'right') {
+      // --- Prise des meubles ---
+      if (saisieVR) {
+        if (!appui) { // relâché : posé, calé, enregistré
+          const cale = caleBanquettesMur();
+          caleTableBanquette();
+          sauverMeubles();
+          cadre.visible = false;
+          saisieVR = null;
+        } else {
+          matRay.identity().extractRotation(m.ray.matrixWorld);
+          rayVR.ray.origin.setFromMatrixPosition(m.ray.matrixWorld);
+          rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
+          if (rayVR.ray.intersectPlane(saisieVR.plan, surSol)) {
+            bougerMeuble(saisieVR.g, (surSol.x + saisieVR.dx) * 100, -(surSol.z + saisieVR.dz) * 100, saisieVR.g.userData.angle);
+            cadre.setFromObject(saisieVR.g);
+          }
+        }
+      }
+      const h = saisieVR ? null : viser(m, meubles.filter(g => g.visible && !g.userData.meuble.fixe));
+      const g = h && meubleDe(h.object);
+      m.ligne.visible = true;
+      m.ligne.scale.z = h ? h.distance : 3;
+      if (!saisieVR) { cadre.visible = !!g; if (g) cadre.setFromObject(g); }
+      if (g && appui && !m.appuiAvant) {
+        const plan = new THREE.Plane(new THREE.Vector3(0, 1, 0), -g.position.y);
+        if (rayVR.ray.intersectPlane(plan, surSol)) saisieVR = { g, plan, dx: g.position.x - surSol.x, dz: g.position.z - surSol.z };
+        src.gamepad.hapticActuators?.[0]?.pulse?.(0.6, 60);
+      }
+      m.appuiAvant = appui;
+    } else {
+      // --- Télémètre laser ---
+      const laser = gachette > 0.3;
+      const h = laser || gp.buttons[4]?.pressed ? viser(m, scene.children) : null;
+      m.ligne.visible = laser;
+      m.ligne.material.color.set(laser ? '#ff2a2a' : '#ffffff');
+      if (laser) m.ligne.scale.z = h ? h.distance : 5;
+      pointVR.visible = laser && !!h;
+      etiquetteLaser.visible = laser && !!h;
+      if (laser && h) {
+        pointVR.position.copy(h.point);
+        etiquetteLaser.position.setFromMatrixPosition(m.ray.matrixWorld).add(new THREE.Vector3(0, 0.07, 0));
+        etiquetteLaser.userData.ecrire(mesureTxt(h.distance));
+      }
+      // Mesure entre deux points : bouton A/B (n° 4 sur l'Index) de la manette gauche.
+      const ab = !!(gp.buttons[4]?.pressed || gp.buttons[5]?.pressed);
+      if (ab && !mesureAB.appui) {
+        if (mesureAB.a && mesureAB.b) { mesureAB.a = mesureAB.b = null; }
+        else if (h) { if (!mesureAB.a) mesureAB.a = h.point.clone(); else mesureAB.b = h.point.clone(); }
+        src.gamepad.hapticActuators?.[0]?.pulse?.(0.4, 40);
+      }
+      mesureAB.appui = ab;
+      const [ba, bb] = mesureAB.billes;
+      ba.visible = !!mesureAB.a; bb.visible = !!mesureAB.b;
+      if (mesureAB.a) ba.position.copy(mesureAB.a);
+      if (mesureAB.b) bb.position.copy(mesureAB.b);
+      const deux = !!(mesureAB.a && mesureAB.b);
+      mesureAB.trait.visible = mesureAB.etiquette.visible = deux;
+      if (deux) {
+        mesureAB.trait.geometry.setFromPoints([mesureAB.a, mesureAB.b]);
+        mesureAB.etiquette.position.copy(mesureAB.a).add(mesureAB.b).multiplyScalar(0.5).add(new THREE.Vector3(0, 0.05, 0));
+        mesureAB.etiquette.userData.ecrire(mesureTxt(mesureAB.a.distanceTo(mesureAB.b)));
+      }
+    }
+  }
 }
 // Avant / Après au casque : PLUS le grip (sur l'Index il se déclenche dès qu'on tient la
 // manette, Sophie basculait sans le vouloir, 19/11). On appuie sur le joystick droit (clic
