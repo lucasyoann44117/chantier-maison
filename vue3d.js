@@ -2251,7 +2251,7 @@ orbite.minDistance = 4;
 orbite.maxDistance = 45;
 // Vue de contrôle : #vue=cibleX,cibleY,cibleH,camX,camY,camH (cm, coordonnées du plan) cadre un
 // meuble de près, pour vérifier un modèle sans manipuler la souris.
-const vueDemandee = /^#vue=([-\d.,]+)$/.exec(location.hash);
+const vueDemandee = /^#vue=([-\d.,]+)/.exec(location.hash);
 if (vueDemandee) {
   const [tx, ty, th, cx, cy, ch] = vueDemandee[1].split(',').map(Number);
   orbite.minDistance = 0.3;
@@ -3648,6 +3648,7 @@ function viser(m, cibles) {
   return null;
 }
 const meubleDe = o => { while (o && !meubles.includes(o)) o = o.parent; return o; };
+const vTete = new THREE.Vector3(), vRegard = new THREE.Vector3(), vMain = new THREE.Vector3();
 
 // ---------- VR, lot 2 (23/11) : bombe de peinture et nuancier ----------
 // Outils de la main droite (joystick droit haut / bas) : main (attraper) ou bombe de peinture.
@@ -3719,6 +3720,84 @@ function majCablage(montrer) {
   }
 }
 majElec.cablage = actifEcran => majCablage(actifEcran || outilDroit === 'electricite');
+
+// ---------- VR, lot 5 (23/11) : table holographique au bureau de l'étage ----------
+// Socle lumineux sur la mezzanine (entre l'escalier et le meuble télé) et, au-dessus, le
+// rez-de-chaussée en miniature au 1/60, en hologramme bleu, sans plafonds. Main droite (outil ✋) :
+// gâchette tenue sur l'hologramme = tourner en tournant la main, découper en tranches en montant /
+// descendant la main ; les deux gâchettes tenues = agrandir / réduire en écartant les mains.
+const HOLO = { x: 790, y: 500, z: 105 }; // cm, sur la mezzanine (niveau 1)
+const holo = new THREE.Group(), holoMini = new THREE.Group(), coupeHolo = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+const matHolo = new THREE.MeshBasicMaterial({ color: '#5ad1ff', transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, clippingPlanes: [coupeHolo] });
+const matHoloMeuble = matHolo.clone(); matHoloMeuble.color.set('#ffd27a'); matHoloMeuble.opacity = 0.35; matHoloMeuble.clippingPlanes = [coupeHolo];
+rendu.localClippingEnabled = true;
+holo.position.set(M(HOLO.x), BASE_ETAGE + M(HOLO.z), -M(HOLO.y));
+scene.add(holo);
+const socleHolo = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, M(HOLO.z) - 0.02, 40), new THREE.MeshStandardMaterial({ color: '#1d2329', roughness: 0.4, metalness: 0.5 }));
+socleHolo.position.y = -(M(HOLO.z) - 0.02) / 2 - 0.02; holo.add(socleHolo);
+const disqueHolo = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.01, 40), new THREE.MeshBasicMaterial({ color: '#5ad1ff', transparent: true, opacity: 0.55 }));
+disqueHolo.position.y = -0.015; holo.add(disqueHolo);
+holo.add(holoMini);
+const etatHolo = { echelle: 1 / 60, tranche: 1, prise: null, deux: null }; // 1/60 : tient sur le socle
+function construireHolo() {
+  holoMini.clear();
+  const contenu = new THREE.Group(), b = new THREE.Box3(), c = new THREE.Vector3();
+  // (les grands aplats du jardin, centrés sous la maison mais plus larges qu'elle, sont exclus)
+  const dansMaison = o => { b.setFromObject(o); if (b.isEmpty()) return false; b.getCenter(c); return b.max.x - b.min.x < 16.5 && b.max.z - b.min.z < 15 && c.x > -0.5 && c.x < 16.5 && c.z > -15 && c.z < 0.5 && c.y < BASE_ETAGE - 0.05; };
+  const copier = (o, mat) => {
+    const k = o.clone(true);
+    k.traverse(x => { if (x.isMesh) { x.material = mat; x.castShadow = x.receiveShadow = false; } if (x.isLight) x.visible = false; });
+    contenu.add(k);
+  };
+  for (const o of elements) if (o.visible && o.isMesh && !plafonds.includes(o) && !o.userData.outilVR && dansMaison(o)) copier(o, matHolo);
+  for (const g of meubles) if (g.visible && dansMaison(g)) copier(g, matHoloMeuble);
+  // Centre la miniature sur le socle, posée dessus.
+  b.setFromObject(contenu); b.getCenter(c);
+  contenu.position.set(-c.x, -b.min.y, -c.z);
+  holoMini.add(contenu);
+  etatHolo.hauteur = b.max.y - b.min.y;
+  majHolo();
+}
+function majHolo() {
+  holoMini.scale.setScalar(etatHolo.echelle);
+  holo.updateMatrixWorld(true);
+  // Tranche : on coupe tout ce qui dépasse la hauteur choisie (0 = sol, 1 = haut des murs).
+  const base = new THREE.Vector3(); holo.getWorldPosition(base);
+  coupeHolo.constant = base.y + 0.002 + etatHolo.tranche * (etatHolo.hauteur || 2.6) * etatHolo.echelle;
+}
+// Visible seulement au casque (à l'écran, la vue d'ensemble n'en a pas besoin).
+holo.visible = false;
+rendu.xr.addEventListener('sessionstart', () => setTimeout(() => { try { construireHolo(); holo.visible = true; } catch (err) { erreurVR(err); } }, 500));
+rendu.xr.addEventListener('sessionend', () => { holo.visible = false; });
+// Aperçu à l'écran (contrôle sans casque) : adresse avec « holo » dans le #.
+if (location.hash.includes('holo')) setTimeout(() => { construireHolo(); holo.visible = true; }, 2000);
+// Appelé par la main droite (outil ✋) : renvoie vrai si l'hologramme est pris.
+function manipulerHolo(m, appui, gp, autre) {
+  const vise = viser(m, [holoMini, disqueHolo, socleHolo]);
+  m.grip.getWorldPosition(vMain);
+  const qMain = new THREE.Quaternion(); m.grip.getWorldQuaternion(qMain);
+  const lacet = new THREE.Euler().setFromQuaternion(qMain, 'YXZ').y;
+  if (!etatHolo.prise && vise && appui && !m.appuiAvant) {
+    etatHolo.prise = { lacet, rot: holoMini.rotation.y, y: vMain.y, tranche: etatHolo.tranche };
+    gp.hapticActuators?.[0]?.pulse?.(0.5, 50);
+  }
+  if (etatHolo.prise && !appui) { etatHolo.prise = null; etatHolo.deux = null; }
+  if (!etatHolo.prise) return !!vise;
+  // Deux mains (gâchette gauche tenue aussi) : écart des mains = échelle.
+  const autrePos = new THREE.Vector3();
+  if (autre && (autre.src?.gamepad?.buttons[0]?.value || 0) > 0.6) {
+    autre.grip.getWorldPosition(autrePos);
+    const d = autrePos.distanceTo(vMain);
+    if (!etatHolo.deux) etatHolo.deux = { d, echelle: etatHolo.echelle };
+    etatHolo.echelle = Math.min(1 / 8, Math.max(1 / 120, etatHolo.deux.echelle * d / Math.max(0.05, etatHolo.deux.d)));
+  } else {
+    etatHolo.deux = null;
+    holoMini.rotation.y = etatHolo.prise.rot + (lacet - etatHolo.prise.lacet) * 1.5;
+    etatHolo.tranche = Math.min(1, Math.max(0.05, etatHolo.prise.tranche + (vMain.y - etatHolo.prise.y) * 2.5));
+  }
+  majHolo();
+  return true;
+}
 let outilDroit = 'main', teinteVR = TEINTES_VR[0], afficherOutilJusqua = 0;
 const etiquetteOutil = etiquetteVR(); etiquetteOutil.visible = false; scene.add(etiquetteOutil);
 function changerOutilDroit(sens) {
@@ -3769,6 +3848,22 @@ function majOutilsVR() {
     // Doigts : l'index suit la gâchette, les trois autres la poignée.
     if (m.main) m.main.userData.doigts.forEach((d, k) => { d.rotation.x = -(k === 0 ? gachette : poigne) * 1.3; });
     const appui = gachette > 0.6;
+    // --- Sac à dos (lot 4) : main passée derrière l'épaule (derrière et au-dessus du cou) +
+    // gâchette = on pioche l'outil suivant (main droite) ; la manette vibre en entrant dans le sac.
+    if (src.handedness === 'right') {
+      camXR.getWorldPosition(vTete); camXR.getWorldDirection(vRegard);
+      m.grip.getWorldPosition(vMain);
+      const vers = vMain.clone().sub(vTete), derriere = vers.x * vRegard.x + vers.z * vRegard.z < -0.05;
+      const dansSac = derriere && vMain.y > vTete.y - 0.35 && vers.length() < 0.6;
+      if (dansSac && !m.dansSac) gp.hapticActuators?.[0]?.pulse?.(0.3, 30);
+      if (dansSac && appui && !m.appuiAvant) {
+        changerOutilDroit(1);
+        gp.hapticActuators?.[0]?.pulse?.(0.8, 90);
+        m.appuiAvant = appui; m.dansSac = dansSac;
+        continue;
+      }
+      m.dansSac = dansSac;
+    }
     if (src.handedness === 'right') {
       // Nom de l'outil au-dessus de la main droite, 1,5 s après un changement.
       etiquetteOutil.visible = performance.now() < afficherOutilJusqua;
@@ -3816,6 +3911,12 @@ function majOutilsVR() {
         continue;
       }
       m.ligne.material.color.set('#ffffff');
+      // --- Table holographique (lot 5) : prioritaire si on la vise ou si on la tient ---
+      if (!saisieVR && manipulerHolo(m, appui, gp, manettesVR.find(x => x !== m))) {
+        m.ligne.visible = true; m.ligne.scale.z = 1.5; m.ligne.material.color.set('#5ad1ff');
+        m.appuiAvant = appui;
+        continue;
+      }
       // --- Prise des meubles ---
       if (saisieVR) {
         if (!appui) { // relâché : posé, calé, enregistré
