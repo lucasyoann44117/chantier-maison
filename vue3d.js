@@ -11,6 +11,11 @@ const M = v => v / 100;
 // Plafond au choix et couches de peinture par mur (remplies à la construction, lues par le
 // sélecteur « 🎨 Plafond cuisine ») : déclarées ici, avant la construction des murs.
 var zonesPlafondChoix = [], couchesPeintes = [];
+// Murs repeints à la bombe en VR (clé mur|pièce|phase|côté → couleur), partagés par le foyer
+// (clé _peintures de la ligne mobilier), sinon gardés dans le navigateur ; et toutes les couches.
+var couchesVR = [], peinturesVR = (() => {
+  try { return { ...(JSON.parse(localStorage.getItem('maquette-peintures') || '{}')), ...(window.MAISON_MOBILIER?._peintures || {}) }; } catch { return {}; }
+})();
 const H = M(HAUTEUR);
 const CENTRE = new THREE.Vector3(M(790), 0, -M(700));
 
@@ -301,7 +306,11 @@ function construireMur(m) {
           if ((!ici || u + 5 > e + 0.01) && debut !== null) {
             const fin = ici ? e : Math.min(e, u);
             if (fin - debut > 1) {
-              const couche = new THREE.Mesh(new THREE.PlaneGeometry(M(fin - debut), z1 - z0), materiauPeinture(couleur));
+              // Face de mur repeinte à la bombe en VR (lot 2) : clé stable mur|pièce|phase|côté.
+              const cle = `${m.id}|${p.nom}|${p.phase || ''}|${cote}`;
+              const couche = new THREE.Mesh(new THREE.PlaneGeometry(M(fin - debut), z1 - z0), materiauPeinture(peinturesVR[cle] || couleur));
+              couche.userData.peinture = { cle, origine: couleur };
+              couchesVR.push(couche);
               const mil = (debut + fin) / 2, d = m.ep / 2 + 0.3;
               couche.position.set(M(ax + ux * mil + nx * d), (z0 + z1) / 2, -M(ay + uy * mil + ny * d));
               couche.rotation.y = angle + (cote === 1 ? 0 : Math.PI);
@@ -3487,7 +3496,9 @@ function majVR(dt) {
       // comme le sélecteur « 🎨 Plafond cuisine » de l'écran, qui suit le même choix.
       // Sur l'Index, Chrome remonte A comme B sous le seul numéro 4 (relevé le 19/11) : A ou B.
       const boutonB = !!(src.gamepad.buttons?.[4]?.pressed || src.gamepad.buttons?.[5]?.pressed);
-      if (boutonB && !majVR.boutonB) {
+      // Outil peinture en main : A/B annule le dernier coup de bombe (au lieu du plafond).
+      if (boutonB && !majVR.boutonB && outilDroit === 'peinture') annulerPeinture();
+      else if (boutonB && !majVR.boutonB) {
         const c = choixPlafond(), sel = majSelecteurPlafond.el;
         if (c) {
           const i = c.liste.findIndex(v => v.nom === appliquerPlafond.nom);
@@ -3498,6 +3509,11 @@ function majVR(dt) {
       majVR.boutonB = boutonB;
       // Tourner par crans (plus confortable qu'une rotation continue en casque). Meuble tenu à la
       // gâchette : le joystick droit le fait pivoter de 15° par cran au lieu de tourner la vue.
+      // Joystick droit vers le haut / le bas : outil suivant / précédent de la main droite.
+      if (Math.abs(ay) > 0.7 && Math.abs(ax) < 0.4 && cranTourne <= 0 && !saisieVR) {
+        changerOutilDroit(ay < 0 ? 1 : -1);
+        cranTourne = 0.4;
+      }
       if (Math.abs(ax) > 0.6 && cranTourne <= 0) {
         if (saisieVR) {
           const u = saisieVR.g.userData;
@@ -3598,6 +3614,8 @@ const manettesVR = [0, 1].map(i => {
     if (m.main) grip.remove(m.main);
     m.main = mainVR(e.data.handedness === 'right');
     grip.add(m.main);
+    // Lot 2 : nuancier au poignet gauche, bombe dans la main droite.
+    grip.add(e.data.handedness === 'right' ? bombe : nuancier);
   });
   ray.addEventListener('disconnected', () => { m.src = null; });
   return m;
@@ -3624,6 +3642,64 @@ function viser(m, cibles) {
   return null;
 }
 const meubleDe = o => { while (o && !meubles.includes(o)) o = o.parent; return o; };
+
+// ---------- VR, lot 2 (23/11) : bombe de peinture et nuancier ----------
+// Outils de la main droite (joystick droit haut / bas) : main (attraper) ou bombe de peinture.
+// Nuancier au poignet gauche (visible avec la bombe) : on vise une pastille + gâchette pour
+// prendre la teinte, puis on vise un mur + gâchette (tenue) pour le peindre. A/B : annuler.
+// Teintes APPROCHÉES (écran ≠ échantillon) : les références du nuancier PPG Chromatic 2023
+// sont à relever et à mettre en face de chaque pastille (ref).
+const TEINTES_VR = [
+  { nom: 'Vert Cardère (cuisine)', hex: '#aecba0' }, { nom: 'Beige clair (séjour)', hex: '#ece4d4' },
+  { nom: 'Bleu gris', hex: '#8d9cab' }, { nom: 'Blanc cassé', hex: '#f2efe8' },
+  { nom: 'Lin', hex: '#e3d7c3' }, { nom: 'Grège', hex: '#c9bba6' },
+  { nom: 'Terracotta doux', hex: '#c97b5a' }, { nom: 'Vert sauge', hex: '#9fae8f' },
+  { nom: 'Vert olive', hex: '#7d8455' }, { nom: 'Bleu canard', hex: '#2f6670' },
+  { nom: 'Anthracite', hex: '#4a4d50' }, { nom: 'Ocre', hex: '#c9a25a' },
+];
+const OUTILS_DROITE = [{ id: 'main', nom: '✋ Main' }, { id: 'peinture', nom: '🎨 Peinture' }];
+let outilDroit = 'main', teinteVR = TEINTES_VR[0], afficherOutilJusqua = 0;
+const etiquetteOutil = etiquetteVR(); etiquetteOutil.visible = false; scene.add(etiquetteOutil);
+function changerOutilDroit(sens) {
+  const i = OUTILS_DROITE.findIndex(o => o.id === outilDroit);
+  outilDroit = OUTILS_DROITE[(i + sens + OUTILS_DROITE.length) % OUTILS_DROITE.length].id;
+  afficherOutilJusqua = performance.now() + 1500;
+  if (outilDroit !== 'main') { saisieVR = null; cadre.visible = false; }
+}
+// Nuancier : planchette 4 × 3 pastilles, accrochée au poignet gauche.
+const nuancier = new THREE.Group();
+nuancier.add(new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.004, 0.1), new THREE.MeshStandardMaterial({ color: '#2a2d31', roughness: 0.6 })));
+TEINTES_VR.forEach((t, k) => {
+  const p = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.006, 0.026), new THREE.MeshStandardMaterial({ color: t.hex, roughness: 0.8 }));
+  p.position.set(-0.045 + (k % 4) * 0.03, 0.003, -0.03 + Math.floor(k / 4) * 0.03);
+  p.userData.teinte = t;
+  nuancier.add(p);
+});
+nuancier.position.set(0, 0.03, 0.06); nuancier.rotation.x = -0.5;
+nuancier.visible = false;
+// Bombe dans la main droite, à la couleur choisie.
+const bombe = marquerOutil(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.11, 16), new THREE.MeshStandardMaterial({ color: teinteVR.hex, roughness: 0.4, metalness: 0.3 })));
+bombe.rotation.x = Math.PI / 2; bombe.position.set(0, 0.03, -0.02); bombe.visible = false;
+const historiquePeinture = [];
+let minuteriePeinture = null;
+function peindreFace(cle, hex) {
+  const avant = peinturesVR[cle] || couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
+  if (avant === hex) return;
+  historiquePeinture.push({ cle, avant });
+  peinturesVR[cle] = hex;
+  for (const c of couchesVR) if (c.userData.peinture.cle === cle) c.material = materiauPeinture(hex);
+  clearTimeout(minuteriePeinture);
+  minuteriePeinture = setTimeout(async () => {
+    try { localStorage.setItem('maquette-peintures', JSON.stringify(peinturesVR)); } catch {}
+    try { await window.MAISON_FUSIONNER_MOBILIER?.({ _peintures: peinturesVR }); } catch (err) { console.warn('Peintures non enregistrées', err); }
+  }, 600);
+}
+function annulerPeinture() {
+  const h = historiquePeinture.pop();
+  if (!h) return;
+  peindreFace(h.cle, h.avant);
+  historiquePeinture.pop(); // l'annulation elle-même ne s'empile pas
+}
 function majOutilsVR() {
   for (const m of manettesVR) {
     const src = m.src, gp = src?.gamepad;
@@ -3633,6 +3709,33 @@ function majOutilsVR() {
     if (m.main) m.main.userData.doigts.forEach((d, k) => { d.rotation.x = -(k === 0 ? gachette : poigne) * 1.3; });
     const appui = gachette > 0.6;
     if (src.handedness === 'right') {
+      // Nom de l'outil au-dessus de la main droite, 1,5 s après un changement.
+      etiquetteOutil.visible = performance.now() < afficherOutilJusqua;
+      if (etiquetteOutil.visible) {
+        etiquetteOutil.position.setFromMatrixPosition(m.grip.matrixWorld).add(new THREE.Vector3(0, 0.12, 0));
+        etiquetteOutil.userData.ecrire(OUTILS_DROITE.find(o => o.id === outilDroit).nom);
+      }
+      bombe.visible = nuancier.visible = outilDroit === 'peinture';
+      if (outilDroit === 'peinture') {
+        // --- Bombe de peinture ---
+        const h = viser(m, scene.children);
+        m.ligne.visible = true;
+        m.ligne.material.color.set(teinteVR.hex);
+        m.ligne.scale.z = h ? h.distance : 3;
+        const pastille = h?.object.userData.teinte, face = h?.object.userData.peinture;
+        if (pastille) { // survol d'une pastille : son nom ; gâchette : on la prend
+          etiquetteOutil.visible = true;
+          etiquetteOutil.position.setFromMatrixPosition(m.grip.matrixWorld).add(new THREE.Vector3(0, 0.12, 0));
+          etiquetteOutil.userData.ecrire(pastille.nom.length > 18 ? pastille.nom.slice(0, 17) + '…' : pastille.nom);
+          if (appui && !m.appuiAvant) { teinteVR = pastille; bombe.material.color.set(pastille.hex); gp.hapticActuators?.[0]?.pulse?.(0.4, 40); }
+        } else if (face && appui) { // gâchette tenue sur un mur : la face prend la teinte
+          if ((peinturesVR[face.cle] || face.origine) !== teinteVR.hex) gp.hapticActuators?.[0]?.pulse?.(0.7, 80);
+          peindreFace(face.cle, teinteVR.hex);
+        }
+        m.appuiAvant = appui;
+        continue;
+      }
+      m.ligne.material.color.set('#ffffff');
       // --- Prise des meubles ---
       if (saisieVR) {
         if (!appui) { // relâché : posé, calé, enregistré
