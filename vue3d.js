@@ -13,8 +13,14 @@ const M = v => v / 100;
 var zonesPlafondChoix = [], couchesPeintes = [];
 // Murs repeints à la bombe en VR (clé mur|pièce|phase|côté → couleur), partagés par le foyer
 // (clé _peintures de la ligne mobilier), sinon gardés dans le navigateur ; et toutes les couches.
+// (24/11) Le serveur fait foi : la copie du navigateur ne sert que sans appli (prototype local) ;
+// avant, elle repassait par-dessus et remettait des couleurs effacées.
 var couchesVR = [], peinturesVR = (() => {
-  try { return { ...(JSON.parse(localStorage.getItem('maquette-peintures') || '{}')), ...(window.MAISON_MOBILIER?._peintures || {}) }; } catch { return {}; }
+  if (window.MAISON_FUSIONNER_MOBILIER) return { ...(window.MAISON_MOBILIER?._peintures || {}) };
+  try { return JSON.parse(localStorage.getItem('maquette-peintures') || '{}'); } catch { return {}; }
+})(), peinturesRef = (() => {
+  if (window.MAISON_FUSIONNER_MOBILIER) return { ...(window.MAISON_MOBILIER?._peinturesRef || {}) };
+  try { return JSON.parse(localStorage.getItem('maquette-peintures-ref') || '{}'); } catch { return {}; }
 })();
 const H = M(HAUTEUR);
 const CENTRE = new THREE.Vector3(M(790), 0, -M(700));
@@ -3562,6 +3568,7 @@ function majVR(dt) {
       else if (boutonB && !majVR.boutonB && outilDroit === 'main' && (etatVR.assisSur || majOutilsVR.siege)) {
         if (etatVR.assisSur) seLever(); else sAsseoir(majOutilsVR.siege);
       }
+      else if (boutonB && !majVR.boutonB && outilDroit === 'main') annulerDeplacementVR();
       // Outil électricité : A/B passe au type de point suivant.
       else if (boutonB && !majVR.boutonB && outilDroit === 'electricite') {
         typeVR = TYPES_VR[(TYPES_VR.indexOf(typeVR) + 1) % TYPES_VR.length]; majAideVR();
@@ -4027,7 +4034,7 @@ if (location.hash.includes('outils')) setTimeout(() => {
   menuOutils.position.copy(o).add(new THREE.Vector3(0, 0.25, 0)); menuOutils.visible = true;
   nuancierVR.position.copy(o).add(new THREE.Vector3(0, -0.15, -0.15)); nuancierVR.visible = true;
   titreNuancier.userData.ecrire(['Mur choisi : Séjour — choisis une couleur']);
-  window.testOutils = { mainVR, plierMain, etatHolo };
+  window.testOutils = { mainVR, plierMain, etatHolo, viser, nuancierVR, peindreFace, annulerPeinture, historiquePeinture, choisirMurVR, couchesVR, peinturesVR, THREE, camEnsemble };
 }, 2500);
 // Contrôle du son sans casque : adresse avec « son » dans le # (outils de test dans la console).
 if (location.hash.includes('son')) window.testSon = { preparerSon, lancerSon, arreterSon, enceintesPosees, sonVR };
@@ -4070,7 +4077,7 @@ function manipulerHolo(m, appui, gp, autre) {
 let outilDroit = 'main', afficherOutilJusqua = 0;
 // Ce que fait chaque bouton, affiché sur le panneau d'aide du poignet gauche.
 const AIDE_OUTILS = {
-  main: ['✋ Main', 'Main sur un meuble + gâchette : le prendre', 'De loin : viser + gâchette (il suit)', 'A/B sur canapé, lit, chaise : s\'asseoir'],
+  main: ['✋ Main', 'Viser un meuble + gâchette tenue : il suit', 'Lâcher : il est posé', 'A/B : annuler · sur un siège : s\'asseoir'],
   metre: ['📏 Mètre', 'Gâchette : point 1, puis point 2', 'La distance s\'affiche en cm', '3e gâchette ou A/B : recommencer'],
   peinture: ['🎨 Peinture', 'Gâchette sur un mur : le choisir', 'Gâchette sur une couleur : appliquer', 'A/B : annuler'],
   electricite: ['⚡ Électricité', 'Gâchette sur un mur : poser le point', 'Gâchette sur un point bleu : l\'effacer', 'A/B : type suivant'],
@@ -4163,17 +4170,32 @@ const nuancierVR = new THREE.Group();
 nuancierVR.visible = false; scene.add(nuancierVR);
 const titreNuancier = panneauVR(0.5, 0.06, 640);
 titreNuancier.position.set(0, 0.17, 0); titreNuancier.material.depthTest = true; nuancierVR.add(titreNuancier);
-TEINTES_VR.forEach((t, k) => {
+// 12 pastilles (24/11) : teintes Chromatic déjà posées dans la maison, puis les plus proches des
+// couleurs actuelles (Vert Cardère…), remplies à l'ouverture du nuancier (remplirPastillesVR).
+const pastillesVR = TEINTES_VR.map((t, k) => {
   const p = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.075), new THREE.MeshBasicMaterial({ color: t.hex }));
   p.position.set(-0.21 + (k % 6) * 0.084, 0.085 - Math.floor(k / 6) * 0.09, 0);
   p.userData.ui = { teinte: t };
   nuancierVR.add(p);
+  return p;
 });
-for (const [k, [lib, action]] of [['↶ Annuler', 'annuler'], ['⟲ Couleur d\'origine', 'origine']].entries()) {
-  const b = panneauVR(0.24, 0.06, 512);
-  b.userData.ecrire([lib], { fond: 'rgba(60,66,74,0.95)', titre: '#ffffff' });
+function remplirPastillesVR() {
+  const l = nuancierChromatic;
+  if (!l?.length) return;
+  const proche = hex => { const c = new THREE.Color(hex); let mieux = null, dMin = 1e9;
+    for (const t of l) { const d = new THREE.Color(t.hex); const e = (d.r - c.r) ** 2 + (d.g - c.g) ** 2 + (d.b - c.b) ** 2; if (e < dMin) { dMin = e; mieux = t; } } return mieux; };
+  const choix = [];
+  const ajouter = t => { if (t && !choix.some(x => x.code === t.code)) choix.push(t); };
+  for (const r of Object.values(peinturesRef)) ajouter(l.find(t => t.code === r.code));
+  for (const t of TEINTES_VR) ajouter(proche(t.hex));
+  pastillesVR.forEach((p, k) => { const t = choix[k]; if (t) { p.material.color.set(t.hex); p.userData.ui = { teinte: { nom: `${t.code} ${t.nom}`, hex: t.hex, ref: { code: t.code, nom: t.nom } } }; } });
+}
+// Boutons plus grands (24/11 : « impossible de cliquer sur annuler »).
+for (const [k, [lib, action]] of [['↶ Annuler', 'annuler'], ['⟲ Origine (ce mur)', 'origine'], ['⟲ Tout remettre', 'tout'], ['✕ Fermer', 'fermer']].entries()) {
+  const b = panneauVR(0.245, 0.075, 512);
+  b.userData.ecrire([lib], { fond: action === 'tout' ? 'rgba(122,46,46,0.95)' : 'rgba(60,66,74,0.95)', titre: '#ffffff' });
   b.material.depthTest = true;
-  b.position.set(-0.125 + k * 0.25, -0.11, 0);
+  b.position.set(-0.13 + (k % 2) * 0.26, -0.115 - Math.floor(k / 2) * 0.085, 0);
   b.userData.ui = { action };
   nuancierVR.add(b);
 }
@@ -4183,34 +4205,158 @@ function choisirMurVR(cle) {
   nuancierVR.visible = !!cle;
   if (!cle) return;
   const g = surbrillance(cle); g.visible = true; if (g.children[0]) g.children[0].material.opacity = 0.35;
-  const [mur, piece] = cle.split('|');
-  titreNuancier.userData.ecrire([`Mur choisi : ${piece} — choisis une couleur`]);
+  remplirPastillesVR();
+  titreNuancier.userData.ecrire([`${nomFace(cle)} : choisis une couleur`]);
+  // Le nuancier ne s'ouvre devant soi qu'à la première sélection (ensuite il reste en place).
+  if (nuancierVR.userData.pose) return;
+  nuancierVR.userData.pose = true;
   camXR.getWorldPosition(vTete); camXR.getWorldDirection(vRegard);
   vRegard.y = 0; vRegard.normalize();
-  nuancierVR.position.copy(vTete).addScaledVector(vRegard, 0.6); nuancierVR.position.y -= 0.2;
+  nuancierVR.position.copy(vTete).addScaledVector(vRegard, 0.5); nuancierVR.position.y -= 0.22;
   nuancierVR.lookAt(vTete.x, nuancierVR.position.y, vTete.z);
-  void mur;
 }
 const historiquePeinture = [];
 let minuteriePeinture = null;
 const couleurDe = cle => peinturesVR[cle] || couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
-function peindreFace(cle, hex, sansHistorique) {
+// ref = { code, nom } de la teinte Chromatic (affichée dans le panneau, enregistrée à part).
+function peindreFace(cle, hex, sansHistorique, ref) {
   const avant = couleurDe(cle), origine = couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
-  if (avant === hex) return;
-  if (!sansHistorique) historiquePeinture.push({ cle, avant });
-  if (hex === origine) delete peinturesVR[cle]; else peinturesVR[cle] = hex;
+  if (avant === hex && JSON.stringify(ref || null) === JSON.stringify(peinturesRef[cle] || null)) return;
+  if (!sansHistorique) historiquePeinture.push({ cle, avant, ref: peinturesRef[cle] || null });
+  if (hex === origine) { delete peinturesVR[cle]; delete peinturesRef[cle]; }
+  else { peinturesVR[cle] = hex; if (ref) peinturesRef[cle] = ref; else delete peinturesRef[cle]; }
   for (const c of couchesVR) if (c.userData.peinture.cle === cle) c.material = materiauPeinture(hex);
   clearTimeout(minuteriePeinture);
   minuteriePeinture = setTimeout(async () => {
-    try { localStorage.setItem('maquette-peintures', JSON.stringify(peinturesVR)); } catch {}
-    try { await window.MAISON_FUSIONNER_MOBILIER?.({ _peintures: peinturesVR }); } catch (err) { console.warn('Peintures non enregistrées', err); }
+    if (!window.MAISON_FUSIONNER_MOBILIER) try {
+      localStorage.setItem('maquette-peintures', JSON.stringify(peinturesVR));
+      localStorage.setItem('maquette-peintures-ref', JSON.stringify(peinturesRef));
+    } catch {}
+    try { await window.MAISON_FUSIONNER_MOBILIER?.({ _peintures: peinturesVR, _peinturesRef: peinturesRef }); } catch (err) { console.warn('Peintures non enregistrées', err); }
   }, 600);
+  majPanneauPeinture?.();
 }
 function annulerPeinture() {
   const h = historiquePeinture.pop();
-  if (h) peindreFace(h.cle, h.avant, true);
+  if (h) peindreFace(h.cle, h.avant, true, h.ref);
 }
+// Tout remettre d'origine (toutes les faces repeintes), en une seule étape annulable mur par mur.
+function toutRemettrePeinture() {
+  for (const cle of Object.keys(peinturesVR)) {
+    const origine = couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
+    if (origine) peindreFace(cle, origine);
+  }
+}
+// Nuancier Chromatic (Dorval, 1 162 teintes, fourni par Yoann le 24/11) : dans les données privées
+// de la maison (window.MAISON.nuancier), sinon fichier local du prototype.
+let nuancierChromatic = window.MAISON?.nuancier || null;
+if (!nuancierChromatic) fetch('nuancier-chromatic.json').then(r => r.ok ? r.json() : null).then(l => { nuancierChromatic = l; }, () => {});
+// Libellé d'une face : « Séjour, mur ouest » à partir de sa clé mur|pièce|phase|côté.
+const nomFace = cle => { const [mur, piece] = cle.split('|'); return `${piece} (${mur})`; };
 
+// ---------- Peinture à l'écran (24/11) : bouton 🎨, clic sur un mur, nuancier Chromatic ----------
+// Hors VR, en vue d'ensemble comme en visite : un clic (sans glisser) sur un mur le choisit (calque
+// jaune) ; le panneau montre sa teinte, une recherche (code « 0767 » ou nom « cardère »), des
+// familles et les pastilles ; clic = appliquer. Annuler, Couleur d'origine (ce mur), Tout remettre.
+let peintureEcran = { actif: false, cle: null, filtre: '', famille: '' };
+const FAMILLES = ['Blanc', 'Gris', 'Beige', 'Brun', 'Jaune', 'Orange', 'Rouge', 'Rose', 'Violet', 'Bleu', 'Vert'];
+const boutonPeinture = document.createElement('button');
+boutonPeinture.id = 'peinture';
+boutonPeinture.setAttribute('aria-pressed', 'false');
+boutonPeinture.textContent = '🎨 Peinture';
+document.getElementById('meubles')?.after(boutonPeinture);
+const panneauPeinture = document.createElement('div');
+panneauPeinture.style.cssText = 'position:fixed;right:12px;top:var(--haut-reserve,110px);z-index:7;display:none;width:min(360px,calc(100vw - 24px));max-height:72vh;overflow:auto;background:#1e2429;color:#fff;border-radius:14px;padding:10px;font:14px system-ui;box-shadow:0 8px 24px rgb(0 0 0 / .4)';
+document.body.append(panneauPeinture);
+const btnP = (act, lib, fond = '#38424a') => `<button data-p="${act}" style="font:600 13px system-ui;border:0;border-radius:999px;padding:7px 11px;margin:3px 3px 0 0;cursor:pointer;background:${fond};color:#fff">${lib}</button>`;
+function majPanneauPeinture() {
+  panneauPeinture.style.display = peintureEcran.actif ? 'block' : 'none';
+  if (!peintureEcran.actif) return;
+  const barre = document.querySelector('.barre');
+  if (barre) document.body.style.setProperty('--haut-reserve', `${Math.round(barre.getBoundingClientRect().bottom) + 8}px`);
+  const cle = peintureEcran.cle, txt = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let html = '<b>🎨 Peinture</b>';
+  if (!cle) html += '<p style="margin:8px 0;color:#cdd">Clique sur un mur pour le choisir.</p>';
+  else {
+    const hex = couleurDe(cle), ref = peinturesRef[cle], origine = couchesVR.find(c => c.userData.peinture.cle === cle)?.userData.peinture.origine;
+    const refOrig = nuancierChromatic?.find(t => t.hex.toLowerCase() === String(origine).toLowerCase());
+    html += `<p style="margin:8px 0 4px">${txt(nomFace(cle))}</p>
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:34px;height:34px;border-radius:8px;border:1px solid #fff4;background:${hex}"></span>
+      <span>${ref ? `<b>${txt(ref.code)}</b> ${txt(ref.nom)}` : hex === origine ? `Couleur d'origine${refOrig ? ` · <b>${txt(refOrig.code)}</b> ${txt(refOrig.nom)}` : ''}` : txt(hex)}</span></div>`;
+  }
+  html += `<div>${btnP('annuler', '↶ Annuler', historiquePeinture.length ? '#38424a' : '#2a3036')}${cle ? btnP('origine', '⟲ Couleur d\'origine') : ''}${Object.keys(peinturesVR).length ? btnP('tout', '⟲ Tout remettre d\'origine', '#7a2e2e') : ''}${btnP('fermer', 'OK', '#f5b800')}</div>`;
+  if (cle) {
+    html += `<input data-p="recherche" placeholder="Code (0767) ou nom (cardère)…" value="${txt(peintureEcran.filtre)}" style="width:100%;box-sizing:border-box;margin:8px 0 4px;padding:7px;border-radius:8px;border:0;font:inherit">
+      <div>${FAMILLES.map(f => btnP(`famille:${f}`, f, peintureEcran.famille === f ? '#f5b800' : '#38424a')).join('')}</div>`;
+    const sansAccent = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const q = sansAccent(peintureEcran.filtre.trim());
+    const liste = (nuancierChromatic || []).filter(t => (!peintureEcran.famille || sansAccent(t.nom).startsWith(sansAccent(peintureEcran.famille))) &&
+      (!q || sansAccent(`${t.code} ${t.nom}`).includes(q)));
+    html += `<p style="margin:6px 0 4px;color:#aab;font-size:12px">${nuancierChromatic ? `${liste.length} teinte${liste.length > 1 ? 's' : ''} Chromatic${liste.length > 240 ? ' (240 premières : affine la recherche)' : ''}` : 'Nuancier en cours de chargement…'}</p>
+      <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:4px">${liste.slice(0, 240).map(t =>
+        `<button data-p="teinte:${txt(t.code)}" title="${txt(t.code)} ${txt(t.nom)}" style="aspect-ratio:1;border-radius:6px;border:1px solid #0003;background:${t.hex};cursor:pointer"></button>`).join('')}</div>`;
+  }
+  panneauPeinture.innerHTML = html;
+  const champ = panneauPeinture.querySelector('[data-p="recherche"]');
+  if (champ && peintureEcran.focus) { champ.focus(); champ.setSelectionRange(champ.value.length, champ.value.length); }
+}
+function choisirFaceEcran(cle) {
+  if (peintureEcran.cle) surbrillance(peintureEcran.cle).visible = false;
+  peintureEcran.cle = cle;
+  if (cle) { const g = surbrillance(cle); g.visible = true; if (g.children[0]) g.children[0].material.opacity = 0.3; }
+  majPanneauPeinture();
+}
+panneauPeinture.addEventListener('click', e => {
+  const b = e.target.closest('[data-p]');
+  if (!b || b.tagName === 'INPUT') return;
+  const v = b.dataset.p;
+  peintureEcran.focus = false;
+  if (v === 'annuler') annulerPeinture();
+  else if (v === 'origine' && peintureEcran.cle) { const o = couchesVR.find(c => c.userData.peinture.cle === peintureEcran.cle)?.userData.peinture.origine; if (o) peindreFace(peintureEcran.cle, o); }
+  else if (v === 'tout' && confirm('Remettre tous les murs repeints à leur couleur d\'origine ?')) toutRemettrePeinture();
+  else if (v === 'fermer') { peintureEcran.actif = false; choisirFaceEcran(null); boutonPeinture.setAttribute('aria-pressed', 'false'); }
+  else if (v.startsWith('famille:')) { const f = v.slice(8); peintureEcran.famille = peintureEcran.famille === f ? '' : f; }
+  else if (v.startsWith('teinte:') && peintureEcran.cle) {
+    const t = nuancierChromatic?.find(x => x.code === v.slice(7));
+    if (t) peindreFace(peintureEcran.cle, t.hex, false, { code: t.code, nom: t.nom });
+  }
+  majPanneauPeinture();
+});
+panneauPeinture.addEventListener('input', e => {
+  if (e.target.dataset.p !== 'recherche') return;
+  peintureEcran.filtre = e.target.value; peintureEcran.focus = true;
+  majPanneauPeinture();
+});
+boutonPeinture.addEventListener('click', () => {
+  peintureEcran.actif = !peintureEcran.actif;
+  boutonPeinture.setAttribute('aria-pressed', String(peintureEcran.actif));
+  if (!peintureEcran.actif) choisirFaceEcran(null);
+  majPanneauPeinture();
+});
+// Clic sans glisser sur un mur : on le choisit (le rayon ne voit que les couches de peinture
+// et les murs, pour ne pas viser à côté).
+let departPeinture = null;
+rendu.domElement.addEventListener('pointerdown', e => { departPeinture = { x: e.clientX, y: e.clientY }; });
+rendu.domElement.addEventListener('pointerup', e => {
+  if (!peintureEcran.actif || !departPeinture || Math.hypot(e.clientX - departPeinture.x, e.clientY - departPeinture.y) > 6) return;
+  const r = rendu.domElement.getBoundingClientRect();
+  pointeur.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  rayonMeuble.setFromCamera(pointeur, mode === 'visite' ? camVisite : camEnsemble);
+  const vus = couchesVR.filter(c => { for (let x = c; x; x = x.parent) if (!x.visible) return false; return true; });
+  const h = rayonMeuble.intersectObjects([...vus, ...piecesDeMur.filter(m => m.visible)], false)[0];
+  choisirFaceEcran(h?.object.userData.peinture?.cle || null);
+});
+
+// Historique des déplacements au casque : A/B (✋) remet le dernier meuble déplacé, avec ceux
+// qui le suivent (chaises de la table), à sa place d'avant.
+const histoMeublesVR = [];
+function annulerDeplacementVR() {
+  const h = histoMeublesVR.pop();
+  if (!h) return;
+  bougerMeuble(h.g, h.x, h.y, h.angle);
+  for (const s of h.suiveurs) { Object.assign(s.f.userData, { x: s.x, y: s.y, angle: s.angle }); s.f.userData.places[phase] = { ...s.f.userData.places[phase], x: s.x, y: s.y, angle: s.angle }; placerMeuble(s.f); }
+  sauverMeubles();
+}
 // --- S'asseoir (24/11) : A/B en visant un canapé, un lit, une chaise… ; marcher ou A/B = se lever ---
 const SIEGES = /canape|fauteuil|lit|banquette|chaise|pouf|banc/i;
 const hauteurAssise = o => (/lit/i.test(o.modele) ? 0.55 : /pouf/i.test(o.modele) ? 0.4 : 0.46);
@@ -4329,59 +4475,55 @@ function majOutilsVR() {
       // Nuancier ouvert : on vise d'abord ses pastilles et boutons.
       const hu = nuancierVR.visible ? viser(m, [nuancierVR]) : null;
       const ui = hu?.object.userData.ui;
-      const h = ui ? hu : viser(m, scene.children);
+      // Murs seulement (couches de peinture et murs) : on ne vise plus un meuble ou la pièce d'à côté.
+      const h = ui ? hu : viser(m, [...couchesVR, ...piecesDeMur]);
       const face = !ui && h?.object.userData.peinture;
       montrerRayon(m, h, ui?.teinte?.hex || (face ? '#ffd84a' : '#ffffff'));
+      m.bout.scale.setScalar(2);
       survolerMurVR(face ? face.cle : null);
+      if (nuancierVR.visible) titreNuancier.userData.ecrire([ui?.teinte ? ui.teinte.nom : `${nomFace(murVR)} : choisis une couleur`]);
       if (clic) {
-        if (ui?.teinte && murVR) { peindreFace(murVR, ui.teinte.hex); vibrer(0.7, 80); }
+        if (ui?.teinte && murVR) { peindreFace(murVR, ui.teinte.hex, false, ui.teinte.ref); vibrer(0.7, 80); }
         else if (ui?.action === 'annuler') { annulerPeinture(); vibrer(0.5, 50); }
         else if (ui?.action === 'origine' && murVR) {
           const origine = couchesVR.find(c => c.userData.peinture.cle === murVR)?.userData.peinture.origine;
           if (origine) peindreFace(murVR, origine); vibrer(0.5, 50);
-        } else if (face) { choisirMurVR(face.cle); vibrer(0.5, 50); }
-        else if (!ui) choisirMurVR(null);
+        } else if (ui?.action === 'tout') { toutRemettrePeinture(); vibrer(0.8, 90); }
+        else if (ui?.action === 'fermer') { choisirMurVR(null); nuancierVR.userData.pose = false; vibrer(0.4, 40); }
+        else if (face) { choisirMurVR(face.cle); vibrer(0.5, 50); }
+        // (viser à côté ne ferme plus le nuancier : on pouvait le perdre en ratant un bouton)
       }
       continue;
     }
 
-    // --- ✋ Main : prise à la main d'abord ---
-    if (saisieMain) {
-      if (!appui) { caleBanquettesMur(); caleTableBanquette(); sauverMeubles(); cadre.visible = false; saisieMain = null; vibrer(0.3, 30); }
-      else {
-        const da = (lacetMain(m) - saisieMain.lacet) * 180 / Math.PI;
-        const angle = ((Math.round((saisieMain.angle + da) / 5) * 5) % 360 + 360) % 360;
-        bougerMeuble(saisieMain.g, (vMain.x + saisieMain.dx) * 100, -(vMain.z + saisieMain.dz) * 100, angle);
-        cadre.setFromObject(saisieMain.g);
-      }
-      m.ligne.visible = m.bout.visible = false;
-      continue;
-    }
-    const proche = !saisieVR && meubleSousLaMain(vMain);
-    if (proche) {
-      m.ligne.visible = m.bout.visible = false;
-      cadre.visible = true; cadre.setFromObject(proche);
-      if (proche !== m.procheAvant) vibrer(0.25, 25);
-      m.procheAvant = proche;
-      if (clic) { saisieMain = { g: proche, dx: proche.position.x - vMain.x, dz: proche.position.z - vMain.z, lacet: lacetMain(m), angle: proche.userData.angle || 0 }; vibrer(0.7, 70); }
-      continue;
-    }
-    m.procheAvant = null;
+    // --- ✋ Main (24/11, façon « gravity gloves » d'Alyx) : on vise, gâchette tenue = le meuble suit
+    // le rayon au sol en douceur (vitesse limitée, jamais à plus de 6 m), on lâche = posé ;
+    // A/B = annuler le dernier déplacement (ou s'asseoir si on vise un siège). La prise au contact
+    // de la main, qui emportait les meubles à toute vitesse, est retirée.
     // Siège visé (pour A/B = s'asseoir)
     {
       const hs = viser(m, meubles.filter(g => g.visible && SIEGES.test(g.userData.meuble.modele || '')));
       const sg = hs && meubleDe(hs.object);
-      if (sg !== majOutilsVR.siege) { majOutilsVR.siege = sg || null; const l = AIDE_OUTILS.main; l[3] = sg ? `A/B : s'asseoir (${sg.userData.meuble.nom || 'siège'})`.slice(0, 44) : 'A/B sur canapé, lit, chaise : s\'asseoir'; majAideVR(); }
+      if (sg !== majOutilsVR.siege) { majOutilsVR.siege = sg || null; const l = AIDE_OUTILS.main; l[3] = sg ? `A/B : s'asseoir (${sg.userData.meuble.nom || 'siège'})`.slice(0, 44) : 'A/B : annuler · sur un siège : s\'asseoir'; majAideVR(); }
     }
     if (!saisieVR && manipulerHolo(m, appui, gp, manettesVR.find(x => x !== m))) { montrerRayon(m, null, '#5ad1ff'); m.ligne.scale.z = 1.5; continue; }
     if (saisieVR) {
-      if (!appui) { caleBanquettesMur(); caleTableBanquette(); sauverMeubles(); cadre.visible = false; saisieVR = null; }
+      if (!appui) { caleBanquettesMur(); caleTableBanquette(); sauverMeubles(); cadre.visible = false; saisieVR = null; vibrer(0.4, 40); }
       else {
         matRay.identity().extractRotation(m.ray.matrixWorld);
         rayVR.ray.origin.setFromMatrixPosition(m.ray.matrixWorld);
         rayVR.ray.direction.set(0, 0, -1).applyMatrix4(matRay);
-        if (rayVR.ray.intersectPlane(saisieVR.plan, surSol)) {
-          bougerMeuble(saisieVR.g, (surSol.x + saisieVR.dx) * 100, -(surSol.z + saisieVR.dz) * 100, saisieVR.g.userData.angle);
+        // Rayon presque à l'horizontale : le point au sol partait au loin ; on ne bouge pas.
+        if (rayVR.ray.direction.y < -0.08 && rayVR.ray.intersectPlane(saisieVR.plan, surSol)) {
+          const u = saisieVR.g.userData, cx = M(u.x), cz = -M(u.y);
+          let tx = surSol.x + saisieVR.dx, tz = surSol.z + saisieVR.dz;
+          // Pas plus de 6 m de la tête, et 2 cm par image au plus (≈ 1 m/s) : déplacement doux.
+          camXR.getWorldPosition(vTete);
+          const dTete = Math.hypot(tx - vTete.x, tz - vTete.z);
+          if (dTete > 6) { tx = vTete.x + (tx - vTete.x) * 6 / dTete; tz = vTete.z + (tz - vTete.z) * 6 / dTete; }
+          let dx = (tx - cx) * 0.25, dz = (tz - cz) * 0.25;
+          const pas = Math.hypot(dx, dz); if (pas > 0.02) { dx *= 0.02 / pas; dz *= 0.02 / pas; }
+          bougerMeuble(saisieVR.g, Math.round((cx + dx) * 1000) / 10, Math.round(-(cz + dz) * 1000) / 10, u.angle);
           cadre.setFromObject(saisieVR.g);
         }
       }
@@ -4392,7 +4534,11 @@ function majOutilsVR() {
     if (!saisieVR) { cadre.visible = !!g; if (g) cadre.setFromObject(g); }
     if (g && clic) {
       const plan = new THREE.Plane(new THREE.Vector3(0, 1, 0), -g.position.y);
-      if (rayVR.ray.intersectPlane(plan, surSol)) saisieVR = { g, plan, dx: g.position.x - surSol.x, dz: g.position.z - surSol.z };
+      if (rayVR.ray.intersectPlane(plan, surSol)) {
+        saisieVR = { g, plan, dx: g.position.x - surSol.x, dz: g.position.z - surSol.z };
+        const u = g.userData;
+        histoMeublesVR.push({ g, x: u.x, y: u.y, angle: u.angle, suiveurs: suiveurs(g).map(f => ({ f, x: f.userData.x, y: f.userData.y, angle: f.userData.angle })) });
+      }
       vibrer(0.6, 60);
     }
   }
