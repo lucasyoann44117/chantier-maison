@@ -114,6 +114,14 @@
             o.note = 'Mesuré (Yoann, 27/11) : largeur 106,5 cm, bas à 88 cm du sol, haut à 31,5 cm sous le plafond (247,5 cm), donc 128 cm de haut.';
           }
         }
+        // Ouvertures mesurées « à X cm sous le plafond » : leur haut descend de 2,5 cm.
+        const hauts = { 'Fenêtre ouest cuisine': [219.5, 217], 'Fenêtre cuisine': [218, 215.5],
+          'Fenêtre salle d\'eau': [219.5, 217], 'Porte-fenêtre en biais côté chambres': [217.2, 214.7],
+          'Porte-fenêtre en biais côté garage': [216.5, 214], 'Porte-fenêtre double (jardin)': [219.5, 217] };
+        for (const m of d.murs || []) for (const o of m.ouvertures || []) {
+          const h = hauts[o.nom];
+          if (h && o.haut === h[0]) { o.haut = h[1]; change = true; }
+        }
         if (change) {
           const { error: e } = await sb.from('maquette').update({ donnees: d, updated_at: new Date().toISOString() }).eq('id', 'rdc');
           if (e) console.warn('Correction du 27/11 non enregistrée :', e.message);
