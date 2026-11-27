@@ -94,6 +94,31 @@
       if (error) throw new Error(error.message);
       if (!data) throw new Error('Aucune maquette enregistrée pour le moment.');
       window.MAISON = data.donnees;
+      // Correction du 27/11 (mesures de Yoann) : plafond du RDC à 247,5 cm, fenêtres du hall et
+      // des chambres 1 et 2 avec le bas à 88 cm et le haut à 216 cm. Appliquée une seule fois,
+      // puis enregistrée dans Supabase par le premier appareil connecté qui ouvre la maquette.
+      {
+        const d = data.donnees; let change = false;
+        if (d.HAUTEUR === 250) {
+          d.HAUTEUR = 247.5; change = true;
+          if (d.etage?.niveau === 270) d.etage.niveau = 267.5;
+          for (const o of d.objets || []) {
+            if (o.h === 250) o.h = 247.5;
+            if (o.h === 6 && o.z === 244) o.z = 241.5;
+          }
+        }
+        const noms = ['Fenêtre hall', 'Fenêtre chambre 1', 'Fenêtre chambre 2'];
+        for (const m of d.murs || []) for (const o of m.ouvertures || []) {
+          if (noms.includes(o.nom) && o.allege !== 88) {
+            o.allege = 88; o.haut = 216; change = true;
+            o.note = 'Mesuré (Yoann, 27/11) : largeur 106,5 cm, bas à 88 cm du sol, haut à 31,5 cm sous le plafond (247,5 cm), donc 128 cm de haut.';
+          }
+        }
+        if (change) {
+          const { error: e } = await sb.from('maquette').update({ donnees: d, updated_at: new Date().toISOString() }).eq('id', 'rdc');
+          if (e) console.warn('Correction du 27/11 non enregistrée :', e.message);
+        }
+      }
       // Positions des meubles déplacés, partagées par le foyer (ligne « mobilier »).
       const { data: mobilier } = await sb.from('maquette').select('donnees').eq('id', 'mobilier').maybeSingle();
       window.MAISON_MOBILIER = mobilier?.donnees || null;
